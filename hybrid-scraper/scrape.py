@@ -13,7 +13,7 @@ class DelegatedPlaywright(Playwright):
 	def scrape_paragraphs(url):
 		self.page.goto(url)
 
-		paragraphs = page.query_selector_all("p")
+		paragraphs = self.page.query_selector_all("p")
 		for p_elem in paragraphs:
 			print(p_elem.inner_text())
 		browser.close()
