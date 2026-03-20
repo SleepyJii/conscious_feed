@@ -2,7 +2,7 @@ from playwright.sync_api import sync_playwright, Playwright
 
 URL = "https://alifeofa.bearblog.dev/relaxing-is-not-a-waste-of-time/"
 
-class DelegatedPlaywright(Playwright):
+class RemoteSyncPlaywright(Playwright):
 	"""
 	Simple wrapper for Playwright for LLM to later deal with.
 	"""
@@ -24,5 +24,5 @@ class DelegatedPlaywright(Playwright):
 		return paragraphs_inner_text
 
 if __name__ == "__main__":
-    playwright = DelegatedPlaywright()
+    playwright = RemoteSyncPlaywright()
 	playwright.scrape_paragraphs(URL)
