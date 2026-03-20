@@ -3,6 +3,9 @@ from playwright.sync_api import sync_playwright, Playwright
 URL = "https://alifeofa.bearblog.dev/relaxing-is-not-a-waste-of-time/"
 
 class DelegatedPlaywright(Playwright):
+	"""
+	Simple wrapper for Playwright for LLM to later deal with.
+	"""
     def __init__(self):
         super().__init__()
 		with sync_playwright() as p:
