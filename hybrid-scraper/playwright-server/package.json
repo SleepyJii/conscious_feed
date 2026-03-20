@@ -1,0 +1,12 @@
+{
+  "name": "browser-server",
+  "version": "1.0.0",
+  "description": "Playwright browser server exposing a WebSocket endpoint for remote clients",
+  "main": "browser_server.js",
+  "scripts": {
+    "start": "node browser_server.js"
+  },
+  "dependencies": {
+    "playwright": "^1.52.0"
+  }
+}

@@ -1,7 +1,7 @@
 # Use an official lightweight Python image
 FROM python:3.11-slim
 
-# Install necessary dependencies for Playwright browsers
+# Install Node.js and dependencies for Playwright browsers
 RUN apt-get update && apt-get install -y \
     curl \
     wget \
@@ -23,28 +23,29 @@ RUN apt-get update && apt-get install -y \
     libxtst6 \
     lsb-release \
     xdg-utils \
+    nodejs \
+    npm \
     --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# Copy requirements.txt if you have one (optional)
-# COPY requirements.txt .
-
-# Install Python dependencies including Playwright
-# If you have a requirements.txt, use:
-# RUN pip install --no-cache-dir -r requirements.txt
-
-# Otherwise, install playwright directly:
+# Install Python dependencies
 RUN pip install --no-cache-dir playwright
 
-# Install Playwright browsers
-RUN playwright install --with-deps
+# Copy playwright-server and install Node.js dependencies
+COPY playwright-server/ ./playwright-server/
+RUN cd playwright-server && npm install
 
-# Copy your application code (optional)
-# COPY . .
+# Install Playwright browsers (shared by both Node.js and Python)
+RUN npx playwright install --with-deps
 
-# Default command (optional)
-ENTRYPOINT ["sh"]
+# Copy application code
+COPY scrape.py ./
 
+# Copy startup script
+COPY entrypoint.sh ./
+RUN chmod +x entrypoint.sh
+
+ENTRYPOINT ["./entrypoint.sh"]
