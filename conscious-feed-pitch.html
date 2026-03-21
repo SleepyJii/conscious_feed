@@ -1,0 +1,1203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ConsciousFeed — AI-Hybridized RSS</title>
+
+    <!-- Fonts: Archivo (display) + Nunito (body) -->
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;700;800;900&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* ===========================================
+           CSS CUSTOM PROPERTIES (SWISS MODERN THEME)
+           Change these to change the whole look
+           =========================================== */
+        :root {
+            /* Colors */
+            --bg-white: #ffffff;
+            --bg-off: #fafafa;
+            --text-dark: #0a0a0a;
+            --text-mid: #444444;
+            --text-light: #888888;
+            --accent-red: #ff3300;
+            --accent-red-glow: rgba(255, 51, 0, 0.15);
+
+            /* Typography — clamp() for responsive */
+            --font-display: 'Archivo', sans-serif;
+            --font-body: 'Nunito', sans-serif;
+            --title-size: clamp(2.2rem, 6.5vw, 5.5rem);
+            --h2-size: clamp(1.5rem, 4vw, 3rem);
+            --h3-size: clamp(1rem, 2vw, 1.5rem);
+            --body-size: clamp(0.8rem, 1.4vw, 1.1rem);
+            --small-size: clamp(0.65rem, 1vw, 0.85rem);
+            --label-size: clamp(0.55rem, 0.9vw, 0.75rem);
+
+            /* Spacing */
+            --slide-padding: clamp(1.5rem, 5vw, 5rem);
+            --content-gap: clamp(0.75rem, 2vw, 2rem);
+            --element-gap: clamp(0.25rem, 1vw, 1rem);
+
+            /* Animation */
+            --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+            --duration-normal: 0.6s;
+        }
+
+        /* ===========================================
+           BASE RESET
+           =========================================== */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        /* ===========================================
+           VIEWPORT FITTING: MANDATORY BASE STYLES
+           =========================================== */
+        html, body {
+            height: 100%;
+            overflow-x: hidden;
+        }
+
+        html {
+            scroll-snap-type: y mandatory;
+            scroll-behavior: smooth;
+        }
+
+        .slide {
+            width: 100vw;
+            height: 100vh;
+            height: 100dvh;
+            overflow: hidden;
+            scroll-snap-align: start;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .slide-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            max-height: 100%;
+            overflow: hidden;
+            padding: var(--slide-padding);
+        }
+
+        .card, .container, .content-box {
+            max-width: min(90vw, 1000px);
+            max-height: min(80vh, 700px);
+        }
+
+        .feature-list, .bullet-list {
+            gap: clamp(0.4rem, 1vh, 1rem);
+        }
+
+        .feature-list li, .bullet-list li {
+            font-size: var(--body-size);
+            line-height: 1.4;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+            gap: clamp(0.5rem, 1.5vw, 1rem);
+        }
+
+        img, .image-container {
+            max-width: 100%;
+            max-height: min(50vh, 400px);
+            object-fit: contain;
+        }
+
+        /* Short viewports (< 700px height) */
+        @media (max-height: 700px) {
+            :root {
+                --slide-padding: clamp(0.75rem, 3vw, 2rem);
+                --content-gap: clamp(0.4rem, 1.5vw, 1rem);
+                --title-size: clamp(1.25rem, 4.5vw, 2.5rem);
+                --h2-size: clamp(1rem, 3vw, 1.75rem);
+            }
+        }
+
+        @media (max-height: 600px) {
+            :root {
+                --slide-padding: clamp(0.5rem, 2.5vw, 1.5rem);
+                --content-gap: clamp(0.3rem, 1vw, 0.75rem);
+                --title-size: clamp(1.1rem, 4vw, 2rem);
+                --body-size: clamp(0.7rem, 1.2vw, 0.95rem);
+            }
+            .nav-dots, .keyboard-hint, .decorative {
+                display: none;
+            }
+        }
+
+        @media (max-height: 500px) {
+            :root {
+                --slide-padding: clamp(0.4rem, 2vw, 1rem);
+                --title-size: clamp(1rem, 3.5vw, 1.5rem);
+                --h2-size: clamp(0.9rem, 2.5vw, 1.25rem);
+                --body-size: clamp(0.65rem, 1vw, 0.85rem);
+            }
+        }
+
+        @media (max-width: 600px) {
+            :root {
+                --title-size: clamp(1.25rem, 7vw, 2.5rem);
+            }
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.2s !important;
+            }
+            html {
+                scroll-behavior: auto;
+            }
+        }
+
+        /* ===========================================
+           SWISS MODERN — GLOBAL ELEMENTS
+           =========================================== */
+
+        /* Visible structural grid behind all slides */
+        .slide::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(0,0,0,0.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,0,0,0.035) 1px, transparent 1px);
+            background-size: clamp(40px, 6vw, 80px) clamp(40px, 6vw, 80px);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* Slide number — top left */
+        .slide-num {
+            position: absolute;
+            top: clamp(1rem, 3vh, 2rem);
+            left: var(--slide-padding);
+            font-family: var(--font-body);
+            font-size: var(--label-size);
+            color: var(--text-light);
+            letter-spacing: 0.2em;
+            z-index: 3;
+        }
+
+        /* Section label — top right */
+        .section-label {
+            position: absolute;
+            top: clamp(1rem, 3vh, 2rem);
+            right: var(--slide-padding);
+            font-family: var(--font-body);
+            font-size: var(--label-size);
+            color: var(--accent-red);
+            letter-spacing: 0.25em;
+            text-transform: uppercase;
+            font-weight: 700;
+            z-index: 3;
+        }
+
+        /* ===========================================
+           REVEAL ANIMATIONS
+           =========================================== */
+        .reveal {
+            opacity: 0;
+            transform: translateY(25px);
+            transition: opacity var(--duration-normal) var(--ease-out-expo),
+                        transform var(--duration-normal) var(--ease-out-expo);
+        }
+
+        .reveal-left {
+            opacity: 0;
+            transform: translateX(-40px);
+            transition: opacity var(--duration-normal) var(--ease-out-expo),
+                        transform var(--duration-normal) var(--ease-out-expo);
+        }
+
+        .reveal-scale {
+            opacity: 0;
+            transform: scale(0.92);
+            transition: opacity 0.5s var(--ease-out-expo),
+                        transform 0.5s var(--ease-out-expo);
+        }
+
+        .slide.visible .reveal,
+        .slide.visible .reveal-left,
+        .slide.visible .reveal-scale {
+            opacity: 1;
+            transform: translateY(0) translateX(0) scale(1);
+        }
+
+        /* Stagger delays */
+        .slide.visible .reveal:nth-child(1),
+        .slide.visible .reveal-left:nth-child(1) { transition-delay: 0.05s; }
+        .slide.visible .reveal:nth-child(2),
+        .slide.visible .reveal-left:nth-child(2) { transition-delay: 0.15s; }
+        .slide.visible .reveal:nth-child(3),
+        .slide.visible .reveal-left:nth-child(3) { transition-delay: 0.25s; }
+        .slide.visible .reveal:nth-child(4),
+        .slide.visible .reveal-left:nth-child(4) { transition-delay: 0.35s; }
+        .slide.visible .reveal:nth-child(5),
+        .slide.visible .reveal-left:nth-child(5) { transition-delay: 0.45s; }
+        .slide.visible .reveal:nth-child(6),
+        .slide.visible .reveal-left:nth-child(6) { transition-delay: 0.55s; }
+
+        .d1 { transition-delay: 0.1s !important; }
+        .d2 { transition-delay: 0.2s !important; }
+        .d3 { transition-delay: 0.3s !important; }
+        .d4 { transition-delay: 0.4s !important; }
+        .d5 { transition-delay: 0.5s !important; }
+
+        /* ===========================================
+           PROGRESS BAR
+           =========================================== */
+        .progress-bar {
+            position: fixed;
+            top: 0; left: 0;
+            height: 3px;
+            background: var(--accent-red);
+            z-index: 9999;
+            transition: width 0.3s ease-out;
+            width: 0%;
+        }
+
+        /* ===========================================
+           NAVIGATION DOTS
+           =========================================== */
+        .nav-dots {
+            position: fixed;
+            right: clamp(0.75rem, 2vw, 1.5rem);
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: clamp(6px, 1vh, 12px);
+            z-index: 9998;
+        }
+
+        .nav-dot {
+            width: clamp(6px, 0.6vw, 10px);
+            height: clamp(6px, 0.6vw, 10px);
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.15);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: none;
+            padding: 0;
+        }
+
+        .nav-dot.active {
+            background: var(--accent-red);
+            transform: scale(1.4);
+        }
+
+        /* ===========================================
+           SLIDE 1 — TITLE
+           =========================================== */
+        .title-slide {
+            background: var(--bg-white);
+        }
+
+        .title-slide .slide-content {
+            justify-content: center;
+            padding-left: clamp(3rem, 10vw, 9rem);
+        }
+
+        /* Red accent block — top right */
+        .title-accent-block {
+            position: absolute;
+            top: 0; right: 0;
+            width: clamp(120px, 25vw, 380px);
+            height: clamp(100px, 22vh, 320px);
+            background: var(--accent-red);
+            z-index: 1;
+        }
+
+        /* Black vertical bar */
+        .title-vert-bar {
+            position: absolute;
+            bottom: 0;
+            left: clamp(3rem, 8vw, 7rem);
+            width: clamp(4px, 0.4vw, 6px);
+            height: clamp(60px, 18vh, 180px);
+            background: var(--text-dark);
+            z-index: 1;
+        }
+
+        .title-slide h1 {
+            font-family: var(--font-display);
+            font-weight: 900;
+            font-size: var(--title-size);
+            color: var(--text-dark);
+            line-height: 0.95;
+            letter-spacing: -0.03em;
+            z-index: 2;
+        }
+
+        .title-slide .subtitle {
+            font-family: var(--font-body);
+            font-size: clamp(0.85rem, 1.6vw, 1.25rem);
+            color: var(--text-mid);
+            margin-top: clamp(0.6rem, 1.5vh, 1.2rem);
+            max-width: 38ch;
+            line-height: 1.5;
+            z-index: 2;
+        }
+
+        .title-slide .tag {
+            display: inline-block;
+            font-family: var(--font-body);
+            font-size: var(--label-size);
+            color: var(--accent-red);
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            font-weight: 700;
+            margin-bottom: clamp(0.5rem, 1.5vh, 1rem);
+            z-index: 2;
+        }
+
+        /* Circle accent */
+        .title-circle {
+            position: absolute;
+            bottom: clamp(2rem, 6vh, 5rem);
+            right: clamp(3rem, 8vw, 7rem);
+            width: clamp(35px, 5vw, 70px);
+            height: clamp(35px, 5vw, 70px);
+            border: clamp(2px, 0.3vw, 4px) solid var(--text-dark);
+            border-radius: 50%;
+            z-index: 2;
+        }
+
+        /* ===========================================
+           SLIDE 2 — PROBLEM
+           =========================================== */
+        .problem-slide {
+            background: var(--text-dark);
+        }
+
+        .problem-slide::before {
+            background-image:
+                linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+        }
+
+        .problem-slide .slide-content {
+            padding-left: clamp(3rem, 10vw, 9rem);
+            gap: clamp(1rem, 3vh, 2.5rem);
+        }
+
+        .problem-slide h2 {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: var(--h2-size);
+            color: #ffffff;
+            letter-spacing: -0.02em;
+        }
+
+        .problem-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: clamp(0.6rem, 1.5vh, 1.2rem);
+            max-width: min(80vw, 600px);
+        }
+
+        .problem-list li {
+            font-family: var(--font-body);
+            font-size: var(--body-size);
+            color: rgba(255,255,255,0.7);
+            line-height: 1.5;
+            padding-left: clamp(1rem, 2vw, 1.8rem);
+            position: relative;
+        }
+
+        .problem-list li::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: clamp(6px, 0.8vh, 10px);
+            width: clamp(6px, 0.5vw, 8px);
+            height: clamp(6px, 0.5vw, 8px);
+            background: var(--accent-red);
+        }
+
+        /* Red bar accent */
+        .problem-bar {
+            position: absolute;
+            right: clamp(3rem, 8vw, 7rem);
+            top: 50%;
+            transform: translateY(-50%);
+            width: clamp(4px, 0.5vw, 8px);
+            height: clamp(100px, 30vh, 280px);
+            background: var(--accent-red);
+            z-index: 1;
+        }
+
+        /* ===========================================
+           SLIDE 3 — SOLUTION
+           =========================================== */
+        .solution-slide {
+            background: var(--bg-white);
+        }
+
+        .solution-slide .slide-content {
+            padding-left: clamp(3rem, 10vw, 9rem);
+            gap: clamp(0.8rem, 2vh, 2rem);
+        }
+
+        .solution-slide h2 {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: var(--h2-size);
+            color: var(--text-dark);
+            letter-spacing: -0.02em;
+        }
+
+        .solution-steps {
+            display: flex;
+            flex-direction: column;
+            gap: clamp(0.5rem, 1.2vh, 1rem);
+            max-width: min(80vw, 600px);
+        }
+
+        .solution-step {
+            display: flex;
+            align-items: flex-start;
+            gap: clamp(0.6rem, 1.2vw, 1.2rem);
+        }
+
+        .step-num {
+            font-family: var(--font-display);
+            font-weight: 900;
+            font-size: clamp(1.2rem, 2.5vw, 2rem);
+            color: var(--accent-red);
+            line-height: 1;
+            flex-shrink: 0;
+            min-width: clamp(1.5rem, 3vw, 2.5rem);
+        }
+
+        .step-text {
+            font-family: var(--font-body);
+            font-size: var(--body-size);
+            color: var(--text-mid);
+            line-height: 1.5;
+        }
+
+        .step-text strong {
+            color: var(--text-dark);
+            font-weight: 700;
+        }
+
+        /* ===========================================
+           SLIDE 4 — INNOVATION (KEY SLIDE)
+           =========================================== */
+        .innovation-slide {
+            background: var(--bg-white);
+        }
+
+        .innovation-slide .slide-content {
+            flex-direction: row;
+            align-items: center;
+            gap: clamp(2rem, 5vw, 5rem);
+            padding-left: clamp(3rem, 8vw, 7rem);
+            padding-right: clamp(3rem, 8vw, 7rem);
+        }
+
+        .innovation-text {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .innovation-text h2 {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: var(--h2-size);
+            color: var(--text-dark);
+            letter-spacing: -0.02em;
+            margin-bottom: clamp(0.5rem, 1.5vh, 1rem);
+        }
+
+        .innovation-text .highlight {
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: var(--h3-size);
+            color: var(--accent-red);
+            margin-bottom: clamp(0.5rem, 1vh, 0.8rem);
+        }
+
+        .innovation-text p {
+            font-family: var(--font-body);
+            font-size: var(--body-size);
+            color: var(--text-mid);
+            line-height: 1.6;
+            max-width: 40ch;
+        }
+
+        /* CSS-only architecture diagram */
+        .arch-diagram {
+            flex: 0 0 min(40vw, 340px);
+            aspect-ratio: 3 / 4;
+            max-height: min(60vh, 420px);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: clamp(0.4rem, 1vh, 0.8rem);
+        }
+
+        .arch-box {
+            width: 100%;
+            padding: clamp(0.5rem, 1.2vh, 1rem) clamp(0.6rem, 1.5vw, 1.2rem);
+            font-family: var(--font-display);
+            font-size: var(--small-size);
+            font-weight: 700;
+            text-align: center;
+            letter-spacing: 0.05em;
+            position: relative;
+        }
+
+        .arch-box.playwright {
+            background: var(--text-dark);
+            color: #fff;
+            border: none;
+        }
+
+        .arch-box.python {
+            background: transparent;
+            color: var(--text-dark);
+            border: clamp(1.5px, 0.2vw, 2.5px) solid var(--text-dark);
+        }
+
+        .arch-box.agent {
+            background: var(--accent-red);
+            color: #fff;
+            border: none;
+        }
+
+        .arch-box.queue {
+            background: transparent;
+            color: var(--text-light);
+            border: clamp(1px, 0.15vw, 2px) dashed var(--text-light);
+            font-weight: 400;
+        }
+
+        .arch-arrow {
+            width: clamp(1.5px, 0.2vw, 2.5px);
+            height: clamp(12px, 2vh, 24px);
+            background: var(--text-light);
+            position: relative;
+        }
+
+        .arch-arrow::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-top: 5px solid var(--text-light);
+        }
+
+        .arch-arrow.red {
+            background: var(--accent-red);
+        }
+
+        .arch-arrow.red::after {
+            border-top-color: var(--accent-red);
+        }
+
+        .arch-bidirectional {
+            font-family: var(--font-body);
+            font-size: clamp(0.5rem, 0.8vw, 0.7rem);
+            color: var(--accent-red);
+            text-align: center;
+            letter-spacing: 0.1em;
+        }
+
+        @media (max-width: 768px) {
+            .innovation-slide .slide-content {
+                flex-direction: column;
+            }
+            .arch-diagram {
+                flex: 0 0 auto;
+                max-height: min(35vh, 280px);
+                width: min(70vw, 280px);
+            }
+        }
+
+        /* ===========================================
+           SLIDE 5 — HOW IT WORKS (FLOW)
+           =========================================== */
+        .flow-slide {
+            background: var(--text-dark);
+        }
+
+        .flow-slide::before {
+            background-image:
+                linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+        }
+
+        .flow-slide .slide-content {
+            align-items: center;
+            gap: clamp(1.2rem, 3vh, 2.5rem);
+        }
+
+        .flow-slide h2 {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: var(--h2-size);
+            color: #ffffff;
+            letter-spacing: -0.02em;
+            text-align: center;
+        }
+
+        .flow-row {
+            display: flex;
+            align-items: center;
+            gap: clamp(0.5rem, 1.5vw, 1.5rem);
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .flow-card {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: clamp(0.6rem, 1.5vh, 1.2rem) clamp(0.8rem, 2vw, 1.5rem);
+            text-align: center;
+            min-width: clamp(80px, 12vw, 140px);
+        }
+
+        .flow-card .flow-icon {
+            font-size: clamp(1rem, 2.5vw, 1.8rem);
+            margin-bottom: clamp(0.2rem, 0.5vh, 0.4rem);
+        }
+
+        .flow-card .flow-title {
+            font-family: var(--font-display);
+            font-size: var(--small-size);
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: 0.05em;
+        }
+
+        .flow-card .flow-desc {
+            font-family: var(--font-body);
+            font-size: clamp(0.55rem, 0.85vw, 0.72rem);
+            color: rgba(255,255,255,0.5);
+            margin-top: clamp(0.15rem, 0.3vh, 0.25rem);
+        }
+
+        .flow-card.accent {
+            border-color: var(--accent-red);
+            background: rgba(255, 51, 0, 0.1);
+        }
+
+        .flow-connector {
+            font-family: var(--font-display);
+            font-size: clamp(0.8rem, 1.5vw, 1.2rem);
+            color: rgba(255,255,255,0.25);
+        }
+
+        /* ===========================================
+           SLIDE 6 — EXPERIENCE / UI
+           =========================================== */
+        .experience-slide {
+            background: var(--bg-white);
+        }
+
+        .experience-slide .slide-content {
+            padding-left: clamp(3rem, 10vw, 9rem);
+            gap: clamp(1rem, 2.5vh, 2rem);
+        }
+
+        .experience-slide h2 {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: var(--h2-size);
+            color: var(--text-dark);
+            letter-spacing: -0.02em;
+        }
+
+        .ui-features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+            gap: clamp(0.8rem, 2vw, 1.5rem);
+            max-width: min(85vw, 750px);
+        }
+
+        .ui-feature {
+            padding: clamp(0.8rem, 1.5vh, 1.2rem) clamp(0.8rem, 1.5vw, 1.2rem);
+            border-left: clamp(2.5px, 0.3vw, 4px) solid var(--accent-red);
+        }
+
+        .ui-feature h3 {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: var(--h3-size);
+            color: var(--text-dark);
+            margin-bottom: clamp(0.2rem, 0.5vh, 0.4rem);
+        }
+
+        .ui-feature p {
+            font-family: var(--font-body);
+            font-size: var(--body-size);
+            color: var(--text-mid);
+            line-height: 1.5;
+        }
+
+        /* ===========================================
+           SLIDE 7 — VISION / CTA
+           =========================================== */
+        .vision-slide {
+            background: var(--bg-white);
+        }
+
+        .vision-slide .slide-content {
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            gap: clamp(0.5rem, 1.5vh, 1.2rem);
+        }
+
+        .vision-slide h2 {
+            font-family: var(--font-display);
+            font-weight: 900;
+            font-size: var(--title-size);
+            color: var(--text-dark);
+            line-height: 0.95;
+            letter-spacing: -0.03em;
+        }
+
+        .vision-slide h2 span {
+            color: var(--accent-red);
+        }
+
+        .vision-slide .vision-sub {
+            font-family: var(--font-body);
+            font-size: clamp(0.9rem, 1.8vw, 1.3rem);
+            color: var(--text-mid);
+            max-width: 45ch;
+            line-height: 1.5;
+        }
+
+        .vision-slide .vision-tag {
+            font-family: var(--font-body);
+            font-size: var(--label-size);
+            color: var(--text-light);
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            margin-top: clamp(0.5rem, 1.5vh, 1rem);
+        }
+
+        /* Red block — bottom left */
+        .vision-block {
+            position: absolute;
+            bottom: 0; left: 0;
+            width: clamp(100px, 20vw, 300px);
+            height: clamp(80px, 15vh, 200px);
+            background: var(--accent-red);
+            z-index: 1;
+        }
+
+        /* Black circle — top right */
+        .vision-circle {
+            position: absolute;
+            top: clamp(2rem, 5vh, 4rem);
+            right: clamp(3rem, 7vw, 6rem);
+            width: clamp(30px, 4vw, 60px);
+            height: clamp(30px, 4vw, 60px);
+            background: var(--text-dark);
+            border-radius: 50%;
+            z-index: 1;
+        }
+
+        /* ===========================================
+           KEYBOARD HINT
+           =========================================== */
+        .keyboard-hint {
+            position: fixed;
+            bottom: clamp(0.75rem, 2vh, 1.5rem);
+            left: 50%;
+            transform: translateX(-50%);
+            font-family: var(--font-body);
+            font-size: clamp(0.5rem, 0.8vw, 0.7rem);
+            color: rgba(0,0,0,0.25);
+            letter-spacing: 0.15em;
+            z-index: 9998;
+            transition: opacity 0.5s ease;
+        }
+
+        .keyboard-hint.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Progress bar -->
+    <div class="progress-bar" id="progressBar"></div>
+
+    <!-- Navigation dots -->
+    <nav class="nav-dots" id="navDots" aria-label="Slide navigation"></nav>
+
+    <!-- Keyboard hint -->
+    <div class="keyboard-hint" id="keyHint">ARROW KEYS / SPACE TO NAVIGATE</div>
+
+    <!-- ===========================================
+         SLIDE 1 — TITLE
+         =========================================== -->
+    <section class="slide title-slide" aria-label="Title">
+        <div class="slide-num">01 / 07</div>
+        <div class="title-accent-block reveal-scale"></div>
+        <div class="title-vert-bar"></div>
+        <div class="slide-content">
+            <div class="tag reveal d1">Hackathon 2026</div>
+            <h1 class="reveal d2">Conscious<br>Feed</h1>
+            <p class="subtitle reveal d3">AI-hybridized RSS bridge for the self-hosting era</p>
+        </div>
+        <div class="title-circle"></div>
+    </section>
+
+    <!-- ===========================================
+         SLIDE 2 — THE PROBLEM
+         =========================================== -->
+    <section class="slide problem-slide" aria-label="The Problem">
+        <div class="slide-num" style="color: rgba(255,255,255,0.35);">02 / 07</div>
+        <div class="section-label" style="color: rgba(255,255,255,0.5);">PROBLEM</div>
+        <div class="problem-bar"></div>
+        <div class="slide-content">
+            <h2 class="reveal">The web is rich with data.<br>Getting it out is a nightmare.</h2>
+            <ul class="problem-list">
+                <li class="reveal">RSS is dying — most websites no longer offer feeds for the content you actually want</li>
+                <li class="reveal">Web scrapers are brittle — a single CSS change breaks your entire pipeline overnight</li>
+                <li class="reveal">Maintaining scrapers is a full-time job — you fix one, another breaks, repeat forever</li>
+                <li class="reveal">Existing solutions are either cloud-locked SaaS or require deep technical expertise</li>
+            </ul>
+        </div>
+    </section>
+
+    <!-- ===========================================
+         SLIDE 3 — THE SOLUTION
+         =========================================== -->
+    <section class="slide solution-slide" aria-label="The Solution">
+        <div class="slide-num">03 / 07</div>
+        <div class="section-label">SOLUTION</div>
+        <div class="slide-content">
+            <h2 class="reveal">Tell it what you want.<br>It handles the rest.</h2>
+            <div class="solution-steps">
+                <div class="solution-step reveal">
+                    <div class="step-num">1</div>
+                    <div class="step-text"><strong>Describe your feed</strong> — "Extract all blog posts from this site" or "Get top-level threads from this forum"</div>
+                </div>
+                <div class="solution-step reveal">
+                    <div class="step-num">2</div>
+                    <div class="step-text"><strong>AI writes the scraper</strong> — OpenCode agents generate a tailored Python scraping script using Playwright</div>
+                </div>
+                <div class="solution-step reveal">
+                    <div class="step-num">3</div>
+                    <div class="step-text"><strong>Scraper runs on schedule</strong> — Your content flows into a clean RSS feed, served from your own infrastructure</div>
+                </div>
+                <div class="solution-step reveal">
+                    <div class="step-num">4</div>
+                    <div class="step-text"><strong>Breaks fix themselves</strong> — When a scraper fails, AI agents diagnose and repair it automatically</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===========================================
+         SLIDE 4 — THE INNOVATION
+         =========================================== -->
+    <section class="slide innovation-slide" aria-label="The Innovation">
+        <div class="slide-num">04 / 07</div>
+        <div class="section-label">INNOVATION</div>
+        <div class="slide-content">
+            <div class="innovation-text">
+                <h2 class="reveal">Hybrid AI Scraping Container</h2>
+                <div class="highlight reveal d2">Zero tokens when scripts work.<br>Instant AI when they don't.</div>
+                <p class="reveal d3">A lightweight JS server runs Playwright centrally. Python scripts pass all browser calls through it — so if a script crashes, the browser stays alive. Failures route through an event queue to OpenCode agents, which connect to <em>the same live browser</em>, see exactly where the script broke, fix it, and rerun.</p>
+            </div>
+            <div class="arch-diagram reveal-scale d4">
+                <div class="arch-box playwright">PLAYWRIGHT SERVER</div>
+                <div class="arch-arrow"></div>
+                <div class="arch-box python">PYTHON SCRIPTS</div>
+                <div class="arch-arrow red"></div>
+                <div class="arch-box queue">EVENT QUEUE</div>
+                <div class="arch-arrow red"></div>
+                <div class="arch-box agent">OPENCODE AGENT</div>
+                <div class="arch-bidirectional">&#8593; shares live browser &#8593;</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===========================================
+         SLIDE 5 — HOW IT WORKS (ARCHITECTURE FLOW)
+         =========================================== -->
+    <section class="slide flow-slide" aria-label="Architecture">
+        <div class="slide-num" style="color: rgba(255,255,255,0.35);">05 / 07</div>
+        <div class="section-label" style="color: rgba(255,255,255,0.5);">ARCHITECTURE</div>
+        <div class="slide-content">
+            <h2 class="reveal">System Architecture</h2>
+            <div class="flow-row reveal d2">
+                <div class="flow-card">
+                    <div class="flow-icon">&#9654;</div>
+                    <div class="flow-title">USER</div>
+                    <div class="flow-desc">Prompts &amp; Config</div>
+                </div>
+                <div class="flow-connector">&#8594;</div>
+                <div class="flow-card">
+                    <div class="flow-icon">&#9881;</div>
+                    <div class="flow-title">ORCHESTRATOR</div>
+                    <div class="flow-desc">Scheduling &amp; Routing</div>
+                </div>
+                <div class="flow-connector">&#8594;</div>
+                <div class="flow-card accent">
+                    <div class="flow-icon">&#9733;</div>
+                    <div class="flow-title">SCRAPER</div>
+                    <div class="flow-desc">Playwright + Python</div>
+                </div>
+                <div class="flow-connector">&#8594;</div>
+                <div class="flow-card">
+                    <div class="flow-icon">&#9776;</div>
+                    <div class="flow-title">RSS / DB</div>
+                    <div class="flow-desc">Feed Generation</div>
+                </div>
+            </div>
+            <div class="flow-row reveal d3">
+                <div class="flow-card accent">
+                    <div class="flow-icon">&#9733;</div>
+                    <div class="flow-title">SCRAPER</div>
+                    <div class="flow-desc">Script fails</div>
+                </div>
+                <div class="flow-connector">&#8594;</div>
+                <div class="flow-card">
+                    <div class="flow-icon">&#9888;</div>
+                    <div class="flow-title">EVENT QUEUE</div>
+                    <div class="flow-desc">Failure routed</div>
+                </div>
+                <div class="flow-connector">&#8594;</div>
+                <div class="flow-card accent">
+                    <div class="flow-icon">&#10047;</div>
+                    <div class="flow-title">AI AGENT</div>
+                    <div class="flow-desc">Sees live browser</div>
+                </div>
+                <div class="flow-connector">&#8594;</div>
+                <div class="flow-card">
+                    <div class="flow-icon">&#10003;</div>
+                    <div class="flow-title">REPAIRED</div>
+                    <div class="flow-desc">Script updated</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===========================================
+         SLIDE 6 — THE EXPERIENCE
+         =========================================== -->
+    <section class="slide experience-slide" aria-label="User Experience">
+        <div class="slide-num">06 / 07</div>
+        <div class="section-label">EXPERIENCE</div>
+        <div class="slide-content">
+            <h2 class="reveal">Minimalist. Powerful.<br>Self-hosted.</h2>
+            <div class="ui-features">
+                <div class="ui-feature reveal">
+                    <h3>Feed Browser</h3>
+                    <p>Browse all scraped content as clean RSS — read, filter, and export from a unified interface</p>
+                </div>
+                <div class="ui-feature reveal">
+                    <h3>Scraper Studio</h3>
+                    <p>Define new sources with natural language prompts — no code required to get started</p>
+                </div>
+                <div class="ui-feature reveal">
+                    <h3>System Dashboard</h3>
+                    <p>Monitor active AI agents, scheduled tasks, scraper health, and failure recovery in real time</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===========================================
+         SLIDE 7 — VISION / CTA
+         =========================================== -->
+    <section class="slide vision-slide" aria-label="Vision">
+        <div class="slide-num">07 / 07</div>
+        <div class="vision-block reveal-scale"></div>
+        <div class="vision-circle"></div>
+        <div class="slide-content">
+            <h2 class="reveal">Industrializing<br>web scraping<br><span>for the masses.</span></h2>
+            <p class="vision-sub reveal d2">The modern self-hoster's dream data intake. Your data, your infrastructure, your feeds — maintained by AI that never sleeps.</p>
+            <div class="vision-tag reveal d3">ConsciousFeed &mdash; Open Source &mdash; Self-Hosted</div>
+        </div>
+    </section>
+
+    <!-- ===========================================
+       SLIDE PRESENTATION CONTROLLER
+       =========================================== -->
+    <script>
+        class SlidePresentation {
+            constructor() {
+                this.slides = document.querySelectorAll('.slide');
+                this.currentSlide = 0;
+                this.isScrolling = false;
+
+                this.setupIntersectionObserver();
+                this.setupKeyboardNav();
+                this.setupTouchNav();
+                this.setupWheelNav();
+                this.setupProgressBar();
+                this.setupNavDots();
+                this.hideHintOnInteraction();
+            }
+
+            /* --- Intersection Observer: triggers .visible --- */
+            setupIntersectionObserver() {
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            entry.target.classList.add('visible');
+                            const idx = Array.from(this.slides).indexOf(entry.target);
+                            if (idx !== -1) {
+                                this.currentSlide = idx;
+                                this.updateProgressBar();
+                                this.updateNavDots();
+                            }
+                        }
+                    });
+                }, { threshold: 0.5 });
+
+                this.slides.forEach(slide => observer.observe(slide));
+            }
+
+            /* --- Keyboard: arrows, space, page up/down --- */
+            setupKeyboardNav() {
+                document.addEventListener('keydown', (e) => {
+                    switch(e.key) {
+                        case 'ArrowDown':
+                        case 'ArrowRight':
+                        case ' ':
+                        case 'PageDown':
+                            e.preventDefault();
+                            this.goToSlide(this.currentSlide + 1);
+                            break;
+                        case 'ArrowUp':
+                        case 'ArrowLeft':
+                        case 'PageUp':
+                            e.preventDefault();
+                            this.goToSlide(this.currentSlide - 1);
+                            break;
+                        case 'Home':
+                            e.preventDefault();
+                            this.goToSlide(0);
+                            break;
+                        case 'End':
+                            e.preventDefault();
+                            this.goToSlide(this.slides.length - 1);
+                            break;
+                    }
+                });
+            }
+
+            /* --- Touch / swipe --- */
+            setupTouchNav() {
+                let startY = 0;
+                document.addEventListener('touchstart', (e) => {
+                    startY = e.touches[0].clientY;
+                }, { passive: true });
+
+                document.addEventListener('touchend', (e) => {
+                    const diff = startY - e.changedTouches[0].clientY;
+                    if (Math.abs(diff) > 50) {
+                        this.goToSlide(this.currentSlide + (diff > 0 ? 1 : -1));
+                    }
+                }, { passive: true });
+            }
+
+            /* --- Mouse wheel with debounce --- */
+            setupWheelNav() {
+                document.addEventListener('wheel', (e) => {
+                    if (this.isScrolling) return;
+                    if (Math.abs(e.deltaY) < 30) return;
+
+                    this.isScrolling = true;
+                    this.goToSlide(this.currentSlide + (e.deltaY > 0 ? 1 : -1));
+
+                    setTimeout(() => { this.isScrolling = false; }, 800);
+                }, { passive: true });
+            }
+
+            /* --- Progress bar --- */
+            setupProgressBar() {
+                this.progressBar = document.getElementById('progressBar');
+                this.updateProgressBar();
+            }
+
+            updateProgressBar() {
+                if (!this.progressBar) return;
+                const progress = ((this.currentSlide + 1) / this.slides.length) * 100;
+                this.progressBar.style.width = progress + '%';
+            }
+
+            /* --- Navigation dots --- */
+            setupNavDots() {
+                const container = document.getElementById('navDots');
+                if (!container) return;
+
+                this.slides.forEach((_, i) => {
+                    const dot = document.createElement('button');
+                    dot.classList.add('nav-dot');
+                    if (i === 0) dot.classList.add('active');
+                    dot.setAttribute('aria-label', `Go to slide ${i + 1}`);
+                    dot.addEventListener('click', () => this.goToSlide(i));
+                    container.appendChild(dot);
+                });
+
+                this.dots = container.querySelectorAll('.nav-dot');
+            }
+
+            updateNavDots() {
+                if (!this.dots) return;
+                this.dots.forEach((dot, i) => {
+                    dot.classList.toggle('active', i === this.currentSlide);
+                });
+            }
+
+            /* --- Go to slide --- */
+            goToSlide(index) {
+                if (index < 0 || index >= this.slides.length) return;
+                this.currentSlide = index;
+                this.slides[index].scrollIntoView({ behavior: 'smooth' });
+                this.updateProgressBar();
+                this.updateNavDots();
+            }
+
+            /* --- Hide keyboard hint after first interaction --- */
+            hideHintOnInteraction() {
+                const hint = document.getElementById('keyHint');
+                if (!hint) return;
+                const hide = () => {
+                    hint.classList.add('hidden');
+                    document.removeEventListener('keydown', hide);
+                    document.removeEventListener('wheel', hide);
+                    document.removeEventListener('touchstart', hide);
+                };
+                document.addEventListener('keydown', hide, { once: true });
+                document.addEventListener('wheel', hide, { once: true });
+                document.addEventListener('touchstart', hide, { once: true });
+            }
+        }
+
+        /* Initialize on DOM ready */
+        document.addEventListener('DOMContentLoaded', () => {
+            new SlidePresentation();
+        });
+    </script>
+</body>
+</html>
