@@ -39,26 +39,33 @@ def add_process():
     # Write updated crontab
     subprocess.run(["crontab", "-"], input=new_cron, text=True)
 
+    
 def edit_cronjob():
     # Get current crontab
     result = subprocess.run(['crontab', '-l'], capture_output=True, text=True)
     cron_lines = result.stdout.splitlines()
     
-    # Find the line to edit (e.g., by command)
-    target_command = args.command  # The command to match
-    new_cron_line = f"{args.minutes or '*'} {args.hours or '*'} {args.days or '*'} {args.months or '*'} {args.weeks or '*'} {target_command}"
+    # Build new cron line with correct order
+    new_cron_line = f"{args.minutes or '*'} {args.hours or '*'} {args.days or '*'} {args.months or '*'} {args.weeks or '*'} {args.command}"
     
     updated_cron = []
     edited = False
     for line in cron_lines:
-        if target_command in line and not edited:
-            updated_cron.append(new_cron_line)
-            edited = True
-        else:
-            updated_cron.append(line)
+        # Split line to get command part
+        parts = line.split()
+        if len(parts) >= 6:
+            command_part = ' '.join(parts[5:])
+            if command_part == args.command and not edited:
+                updated_cron.append(new_cron_line)
+                edited = True
+                continue
+        updated_cron.append(line)
     
-    # Write back the updated crontab
-    subprocess.run(['crontab', '-'], input='\n'.join(updated_cron) + '\n', text=True)
+    if not edited:
+        print("No matching cron job found to edit.")
+    else:
+        subprocess.run(['crontab', '-'], input='\n'.join(updated_cron) + '\n', text=True)
+        print("Cron job edited successfully.")
 
 def main():
     args = setup_arguments()
