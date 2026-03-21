@@ -20,6 +20,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ""),
       },
+      "/conductor-api": {
+        target: "http://conductor:8000",
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/conductor-api/, ""),
+      },
     },
   },
 })

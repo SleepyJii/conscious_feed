@@ -5,17 +5,18 @@ WORKDIR /app
 # Install pnpm
 RUN npm install -g pnpm
 
-# Clean dependencies with every build
-RUN rm -rf node_modules package-lock.json pnpm-lock.yaml
+# Clean dependencies with every build ENABLE IN PROD
+#RUN rm -rf node_modules package-lock.json pnpm-lock.yaml
 
 # Copy source code
-COPY . .
+COPY package.json package.json
 
 # Install dependencies
 RUN CI=true pnpm install
 
 RUN CI=true pnpm install react-router-dom
 
+COPY . .
 
 # Build the Vite + shadcn UI project
 RUN pnpm run build

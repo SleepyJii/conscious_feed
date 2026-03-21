@@ -1,0 +1,1 @@
+export const buttonStyles = "cursor-pointer hover:cursor-pointer hover:bg-neutral-300 hover:scale-105 transition-transform"
