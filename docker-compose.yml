@@ -3,6 +3,7 @@
 services:
   conductor:
     build: ./containers/fleet-conductor
+    container_name: conductor
     environment:
       REPAIR_CRON_SCHEDULE: "* * * * *"
       MAX_CONCURRENT_REPAIRS: "1"
@@ -15,6 +16,12 @@ services:
       - fleet-data:/fleet-data
     networks:
       - conscious-feed
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
   
   db:
@@ -55,10 +62,21 @@ services:
     depends_on:
       db-restful:
         condition: service_healthy
+      conductor:
+        condition: service_healthy
     ports:
       - "5173:5173"
     networks:
       - conscious-feed
+
+  mcp-proxy:
+    build: ./containers/mcp-proxy
+    container_name: mcp_proxy
+    ports:
+      - "9200:8080"
+    networks:
+      - conscious-feed
+    restart: unless-stopped
 
   # hybrid-scraper is managed dynamically by the conductor.
   # This entry is build-only — it won't start with `docker compose up`.

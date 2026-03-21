@@ -7,7 +7,9 @@ fleet.py, filesystem state in state_helpers/, DB queries in api_helpers/.
 
 from __future__ import annotations
 
+import json
 import logging
+import socket
 import subprocess
 import time
 
@@ -98,6 +100,36 @@ def list_repair_candidates():
             candidates.append(name)
 
     return {"candidates": candidates}
+
+
+@app.get("/repair-containers")
+def list_repair_containers():
+    """List active repair containers with their MCP connection info."""
+    ps_result = subprocess.run(
+        ["docker", "ps", "--filter", "name=repair-scraper-",
+         "--format", "{{.Names}}\t{{.Status}}\t{{.Ports}}"],
+        capture_output=True, text=True,
+    )
+    containers = []
+    for line in ps_result.stdout.strip().splitlines():
+        if not line:
+            continue
+        parts = line.split("\t")
+        name = parts[0]
+        status = parts[1] if len(parts) > 1 else ""
+        ports = parts[2] if len(parts) > 2 else ""
+        scraper_id = name.replace("repair-", "")
+        mcp_port = None
+        if "->8080" in ports:
+            mcp_port = int(ports.split("->")[0].split(":")[-1])
+        containers.append({
+            "scraper_id": scraper_id,
+            "container_name": name,
+            "status": status,
+            "mcp_port": mcp_port,
+            "mcp_url": f"http://localhost:{mcp_port}" if mcp_port else None,
+        })
+    return {"repair_containers": containers}
 
 
 @app.get("/scrapers/{scraper_id}")
@@ -255,13 +287,15 @@ def stop_scraper(scraper_id: str):
 
     stopped = []
 
-    # Kill repair container if running
-    repair_result = subprocess.run(
-        ["docker", "rm", "-f", f"repair-{scraper_id}"],
-        capture_output=True, text=True,
-    )
-    if repair_result.returncode == 0:
-        stopped.append(f"repair-{scraper_id}")
+    # Stop repair container if running (managed via fleet compose)
+    repair_service = f"repair-{scraper_id}"
+    if repair_service in services:
+        repair_result = state.run("rm", "-fsv", repair_service)
+        if repair_result.returncode == 0:
+            stopped.append(repair_service)
+        del services[repair_service]
+        state.save(data)
+        fleet.sync_crontab(data)
 
     # Stop any running containers for this scraper (debug or normal)
     # docker compose rm handles the compose-managed container
@@ -269,15 +303,16 @@ def stop_scraper(scraper_id: str):
     if result.returncode == 0:
         stopped.append(scraper_id)
 
-    # Also kill any orphaned debug run containers (docker compose run creates these)
-    ps_result = subprocess.run(
-        ["docker", "ps", "-q", "--filter", f"name=fleet-data-{scraper_id}-run"],
-        capture_output=True, text=True,
-    )
-    for cid in ps_result.stdout.strip().splitlines():
-        if cid:
-            subprocess.run(["docker", "rm", "-f", cid], capture_output=True)
-            stopped.append(cid[:12])
+    # Also kill any orphaned run containers (docker compose run creates these)
+    for name_filter in [f"fleet-{scraper_id}-run", f"fleet-repair-{scraper_id}-run"]:
+        ps_result = subprocess.run(
+            ["docker", "ps", "-q", "--filter", f"name={name_filter}"],
+            capture_output=True, text=True,
+        )
+        for cid in ps_result.stdout.strip().splitlines():
+            if cid:
+                subprocess.run(["docker", "rm", "-f", cid], capture_output=True)
+                stopped.append(cid[:12])
 
     # Clean up stale socket file
     sock = FLEET_DATA / scraper_id / "browser.sock"
@@ -291,13 +326,31 @@ def stop_scraper(scraper_id: str):
         "status": "stopped",
     }
 
+def _get_debug_ws_endpoint(container_id: str) -> str:
+    """Get the debug scraper's WS_ENDPOINT rewritten with its network IP."""
+    ip_result = subprocess.run(
+        ["docker", "inspect", "-f",
+         "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+         container_id],
+        capture_output=True, text=True,
+    )
+    container_ip = ip_result.stdout.strip()
+
+    config_result = subprocess.run(
+        ["docker", "exec", container_id, "cat", "/app/playwright-server/config.json"],
+        capture_output=True, text=True,
+    )
+    config = json.loads(config_result.stdout)
+    ws = config["ws_endpoint"]  # ws://0.0.0.0:{port}/{hash}
+    return ws.replace("0.0.0.0", container_ip)
+
+
 @app.post("/scrapers/{scraper_id}/repair")
 def repair_scraper(scraper_id: str, body: RepairRequest = RepairRequest()):
     """Launch a dev-agent to repair a broken scraper.
 
-    lazy=True (default) skips if the last run succeeded.
-    sockpuppet=True keeps the container alive with sleep infinity
-    for an external agent to exec into.
+    In sockpuppet mode, also launches a debug scraper with a live browser,
+    then starts the dev-agent as an MCP server connected to that browser.
     """
     data = state.load()
     services = data.get("services", {})
@@ -315,54 +368,100 @@ def repair_scraper(scraper_id: str, body: RepairRequest = RepairRequest()):
             })
             return {"scraper_id": scraper_id, "status": "skipped", "reason": "last run succeeded"}
 
-    # Skip if a repair container is already running
-    ps_check = subprocess.run(
-        ["docker", "ps", "-q", "--filter", f"name=repair-{scraper_id}"],
-        capture_output=True, text=True,
-    )
-    if ps_check.stdout.strip():
+    # Skip if a repair service is already defined (running or exited)
+    repair_service_name = f"repair-{scraper_id}"
+    if repair_service_name in services:
         return {"scraper_id": scraper_id, "status": "skipped", "reason": "repair already running"}
 
     # Write last error to file for the dev-agent to read
     api.get_last_error(scraper_id)
 
-    cmd = [
-        "docker", "run", "-d",
-        "--name", f"repair-{scraper_id}",
-        "--network", "conscious-feed",
-        "-v", "fleet-data:/fleet-data",
-        "-e", f"SCRAPER_ID={spec.scraper_id}",
-        "-e", f"TARGET_URL={spec.target_url}",
-        "-e", f"SCRAPING_PROMPT={spec.scraping_prompt}",
-        "-e", f"SCRAPER_DIR=/fleet-data/{spec.scraper_id}",
-    ]
+    # Launch debug scraper to get a live browser
+    log.info("Launching debug scraper for repair of %s", scraper_id)
+    debug_result = state.run("run", "-d", "-e", "DEBUG_MODE=1", scraper_id)
+    if debug_result.returncode != 0:
+        log.error("Debug launch failed for %s: %s", scraper_id, debug_result.stderr)
+        raise HTTPException(500, f"Debug launch failed: {debug_result.stderr}")
 
+    debug_container_id = debug_result.stdout.strip()
+
+    # Wait for browser server config.json to appear inside the container
+    ws_endpoint = None
+    for _ in range(30):
+        time.sleep(1)
+        try:
+            ws_endpoint = _get_debug_ws_endpoint(debug_container_id)
+            break
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    if ws_endpoint is None:
+        subprocess.run(["docker", "rm", "-f", debug_container_id], capture_output=True)
+        raise HTTPException(500, "Debug browser failed to start — config.json never appeared")
+    log.info("Debug browser for %s at %s", scraper_id, ws_endpoint)
+
+    # Add dev-agent as a service in the fleet compose so it's managed by
+    # docker compose -p fleet (and cleaned up with `down`)
+    repair_service_name = f"repair-{scraper_id}"
+    repair_env = {
+        "SCRAPER_ID": spec.scraper_id,
+        "TARGET_URL": spec.target_url,
+        "SCRAPING_PROMPT": spec.scraping_prompt,
+        "SCRAPER_DIR": f"/fleet-data/{spec.scraper_id}",
+        "WS_ENDPOINT": ws_endpoint,
+    }
     if body.sockpuppet:
-        cmd.extend(["-e", "SOCKPUPPET=1"])
+        repair_env["SOCKPUPPET"] = "1"
 
-    cmd.append(DEV_AGENT_IMAGE)
+    services[repair_service_name] = {
+        "image": DEV_AGENT_IMAGE,
+        "container_name": repair_service_name,
+        "hostname": repair_service_name,
+        "environment": repair_env,
+        "networks": {"conscious-feed": {"aliases": [repair_service_name]}},
+        "volumes": ["fleet-data:/fleet-data"],
+    }
+    state.save(data)
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = state.run("run", "-d", repair_service_name)
 
     if result.returncode != 0:
         log.error("Repair launch failed for %s: %s", scraper_id, result.stderr)
+        # Clean up the service definition
+        del services[repair_service_name]
+        state.save(data)
+        subprocess.run(["docker", "rm", "-f", debug_container_id], capture_output=True)
         raise HTTPException(500, f"Repair launch failed: {result.stderr}")
 
     container_id = result.stdout.strip()
 
+    # Wait for dev-agent MCP server readiness in sockpuppet mode
+    if body.sockpuppet:
+        for _ in range(30):
+            time.sleep(0.5)
+            try:
+                s = socket.create_connection((f"repair-{scraper_id}", 8080), timeout=1)
+                s.close()
+                break
+            except (ConnectionRefusedError, OSError):
+                continue
+
     api.emit("repair_launched", container_id=scraper_id, payload={
         "docker_container_id": container_id,
+        "debug_container_id": debug_container_id,
         "sockpuppet": body.sockpuppet,
         "lazy": body.lazy,
     })
 
     log.info("Repair launched for %s (sockpuppet=%s)", scraper_id, body.sockpuppet)
-    return {
+    response = {
         "scraper_id": scraper_id,
         "container_id": container_id,
+        "debug_container_id": debug_container_id,
         "status": "repair launched",
         "sockpuppet": body.sockpuppet,
     }
+    return response
 
 
 @app.delete("/scrapers/{scraper_id}")

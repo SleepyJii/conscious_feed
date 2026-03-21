@@ -24,20 +24,8 @@ def main():
     ws = os.environ["WS_ENDPOINT"]
     url = os.environ.get("TARGET_URL", "")
 
-    with sync_playwright() as p:
-        browser = p.chromium.connect(ws)
-        ctx = browser.new_context(
-            user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-        )
-        page = ctx.new_page()
-        page.goto(url, wait_until="networkidle")
-
-        for el in page.query_selector_all("p"):
-            text = el.inner_text().strip()
-            if text:
-                print(json.dumps({"url": page.url, "title": page.title(), "content": text}))
-
-        page.close()
+    # TODO: implement — see SCRAPING_PROMPT env var for what to extract
+    raise NotImplementedError("Scraper not yet implemented")
 
 if __name__ == "__main__":
     main()

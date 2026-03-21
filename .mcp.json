@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "conscious-feed-tools": {
+      "type": "http",
+      "url": "http://localhost:9200/mcp"
+    }
+  }
+}

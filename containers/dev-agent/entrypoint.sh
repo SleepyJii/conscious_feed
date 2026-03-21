@@ -16,8 +16,8 @@ emit_event() {
 }
 
 if [ "${SOCKPUPPET:-}" = "1" ]; then
-    echo "dev-agent: sockpuppet mode, waiting for external agent"
-    exec sleep infinity
+    echo "dev-agent: MCP server mode on port 8080"
+    exec python3 /app/mcp_server.py
 fi
 
 # Run the repair script

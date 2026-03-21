@@ -10,7 +10,7 @@ import subprocess
 
 import yaml
 
-from config import FLEET_DATA, COMPOSE_FILE
+from config import FLEET_DATA, COMPOSE_FILE, FLEET_PROJECT_NAME
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ def save(data: dict) -> None:
 
 def run(*args: str, timeout: int = 60) -> subprocess.CompletedProcess:
     """Run a docker compose command against the fleet compose file."""
-    cmd = ["docker", "compose", "-f", str(COMPOSE_FILE), *args]
+    cmd = ["docker", "compose", "-p", FLEET_PROJECT_NAME, "-f", str(COMPOSE_FILE), *args]
     log.debug("Running: %s", " ".join(cmd))
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 

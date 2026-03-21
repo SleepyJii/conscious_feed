@@ -8,7 +8,7 @@ API_URL="http://localhost:8000"
 MAX_CONCURRENT="${MAX_CONCURRENT_REPAIRS:-2}"
 
 # Count currently running repair containers
-RUNNING=$(docker ps --filter "name=repair-scraper-" -q 2>/dev/null | wc -l)
+RUNNING=$(docker ps --filter "name=repair-" -q 2>/dev/null | wc -l)
 
 # Get candidates from the conductor API
 CANDIDATES=$(curl -sf "$API_URL/scrapers/repair-candidates" | jq -r '.candidates[]' 2>/dev/null)

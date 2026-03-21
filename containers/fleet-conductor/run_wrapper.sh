@@ -22,7 +22,7 @@ emit_event "{\"source\":\"conductor\",\"event_type\":\"scraper_launched\",\"cont
 
 STDOUT_FILE=$(mktemp)
 STDERR_FILE=$(mktemp)
-docker compose -f "$COMPOSE_FILE" run --rm "$SCRAPER_ID" >"$STDOUT_FILE" 2>"$STDERR_FILE"
+docker compose -p fleet -f "$COMPOSE_FILE" run --rm "$SCRAPER_ID" >"$STDOUT_FILE" 2>"$STDERR_FILE"
 EXIT_CODE=$?
 
 FINISHED_AT=$(date -u +"%Y-%m-%d %H:%M:%S+00")
