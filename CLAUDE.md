@@ -59,12 +59,44 @@ entrypoint.sh → starts browser server → exports WS_ENDPOINT
 - Single table `scrape_results`: id, scraper_id, scraper_name, target_url, page_url, title, content, raw_json (JSONB), scraped_at, created_at.
 - DB credentials hardcoded for internal Docker network: `conscious_feed`/`conscious_feed`/`conscious_feed`.
 
-## API (fleet-conductor :8000)
+## Exposed Ports
+
+Only two ports are exposed to the host:
+- **9200** — MCP proxy (`mcp_proxy`). This is the single interface for Claude Code to interact with the system.
+- **5173** — Scraper UI (`scraper_ui`).
+
+All other services (conductor, db, db-restful) communicate internally on the `conscious-feed` Docker network. **Do not add host port mappings for internal services.**
+
+## MCP Proxy (`mcp_proxy`, port 9200)
+
+The MCP proxy is a persistent FastMCP server that acts as the single gateway for Claude Code. It exposes tools covering all conductor and db-restful endpoints, plus forwarding to active dev-agent repair containers. Claude Code should use MCP tools exclusively — no curl to internal services.
+
+Configured in `.mcp.json` and auto-approved via `.claude/settings.local.json`.
+
+### Debugging without host ports
+
+If you need to manually curl an internal API for debugging, exec into the `mcp_proxy` container (it has `curl` installed and is on the `conscious-feed` network):
+
+```bash
+docker exec mcp_proxy curl -s http://conductor:8000/scrapers
+docker exec mcp_proxy curl -s http://restful_db:5000/rss_content
+```
+
+## API (fleet-conductor, internal only)
 
 - `GET /health`
-- `POST /scrapers` — body: `{name?, target_url, scraping_prompt, cron_schedule?}` → returns ScraperSpec with auto-assigned scraper_id
-- `PATCH /scrapers/{scraper_id}` — body: `{name?, target_url?, scraping_prompt?, cron_schedule?}`
+- `GET /scrapers` — list all scrapers with monitoring and container state
+- `GET /scrapers/{scraper_id}` — single scraper detail
+- `POST /scrapers` — body: `{name?, target_url, scraping_prompt, cron_schedule?, autorepair?}`
+- `PATCH /scrapers/{scraper_id}` — body: `{name?, target_url?, scraping_prompt?, cron_schedule?, autorepair?}`
 - `DELETE /scrapers/{scraper_id}`
+- `POST /scrapers/{scraper_id}/run` — manual trigger
+- `POST /scrapers/{scraper_id}/launch_debug` — debug mode with live browser
+- `POST /scrapers/{scraper_id}/stop` — stop and clean up
+- `POST /scrapers/{scraper_id}/repair` — body: `{lazy?, sockpuppet?}` — launch dev-agent repair
+- `GET /scrapers/repair-candidates` — failing scrapers with autorepair enabled
+- `GET /repair-containers` — active repair containers
+- `POST /batch-update` — bulk scraper upsert
 
 ## Status / What's Next
 

@@ -7,8 +7,6 @@ services:
     environment:
       REPAIR_CRON_SCHEDULE: "* * * * *"
       MAX_CONCURRENT_REPAIRS: "1"
-    ports:
-      - "8000:8000"
     volumes:
       # DinD: access the host Docker daemon to manage scraper containers
       - /var/run/docker.sock:/var/run/docker.sock
@@ -32,8 +30,6 @@ services:
       POSTGRES_USER: conscious_feed
       POSTGRES_PASSWORD: conscious_feed
       POSTGRES_DB: scrape_db
-    ports:
-      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./volumes/db-init:/docker-entrypoint-initdb.d
@@ -45,8 +41,6 @@ services:
     container_name: restful_db
     depends_on:
       - db
-    ports:
-      - "5000:5000"
     networks:
       - conscious-feed
     healthcheck:
