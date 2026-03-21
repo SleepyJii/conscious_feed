@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # If launched by the fleet conductor, symlink scrape.py from fleet-data
 if [ -d "/fleet-data" ] && [ -n "$SCRAPER_ID" ]; then
@@ -30,7 +30,18 @@ echo "Browser server ready: $(cat /app/playwright-server/config.json)"
 export WS_ENDPOINT=$(jq -r '.ws_endpoint' /app/playwright-server/config.json)
 
 # Run the scraper, pipe JSON output through the ingestion layer
+set -o pipefail
 python3 /app/scrape.py | /app/ingest.sh
+SCRAPE_EXIT=$?
+
+if [ "${DEBUG_MODE:-}" = "1" ]; then
+    echo "DEBUG MODE: scraper exited with code $SCRAPE_EXIT"
+    echo "DEBUG MODE: browser server still running at $WS_ENDPOINT"
+    echo "DEBUG MODE: container will stay alive for inspection"
+    # Keep the container alive so agents can exec in and use the browser
+    while true; do sleep 60; done
+fi
 
 # Clean up
 kill $SERVER_PID 2>/dev/null
+exit $SCRAPE_EXIT

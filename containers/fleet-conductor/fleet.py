@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import logging
 
-import compose
+import state_helpers as state
 from config import COMPOSE_FILE, FLEET_DATA
-from cron import update_crontab
 from scraper_spec import ScraperSpec
 
 log = logging.getLogger(__name__)
@@ -79,5 +78,5 @@ def sync_crontab(compose_data: dict) -> None:
         ScraperSpec.from_compose_service(name, svc)
         for name, svc in services.items()
     ]
-    update_crontab(specs, str(COMPOSE_FILE))
+    state.update_crontab(specs, str(COMPOSE_FILE))
     log.info("Crontab synced (%d scraper(s))", len(specs))

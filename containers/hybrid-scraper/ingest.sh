@@ -9,8 +9,12 @@ DB_PORT="${DB_PORT:-5432}"
 DB_NAME="${DB_NAME:-conscious_feed}"
 DB_USER="${DB_USER:-conscious_feed}"
 DB_PASS="${DB_PASS:-conscious_feed}"
+EVENTS_URL="http://restful_db:5000/register_event"
 
 export PGPASSWORD="$DB_PASS"
+
+ROWS_OK=0
+ROWS_FAILED=0
 
 while IFS= read -r line; do
     # Try to parse as JSON — skip non-JSON lines
@@ -38,7 +42,7 @@ while IFS= read -r line; do
     raw_json="$enriched"
 
     # Insert into PostgreSQL (escape single quotes for SQL)
-    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -q -c \
+    if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -q -c \
         "INSERT INTO scrape_results (scraper_id, scraper_name, target_url, page_url, title, content, raw_json, scraped_at)
          VALUES (
             '$(echo "$s_id" | sed "s/'/''/g")',
@@ -49,10 +53,20 @@ while IFS= read -r line; do
             '$(echo "$content" | sed "s/'/''/g")',
             '$(echo "$raw_json" | sed "s/'/''/g")'::jsonb,
             '$scraped_at'::timestamptz
-         );" 2>&1 || { echo "[ingest] ERROR inserting row" >&2; continue; }
-
-    # Echo ingested line to stdout so callers can count rows
-    echo "$line"
+         );" 2>&1; then
+        ROWS_OK=$((ROWS_OK + 1))
+        # Echo ingested line to stdout so callers can count rows
+        echo "$line"
+    else
+        ROWS_FAILED=$((ROWS_FAILED + 1))
+        echo "[ingest] ERROR inserting row" >&2
+    fi
 done
 
-echo "[ingest] Done." >&2
+# Emit ingest summary event
+curl -s -X POST "$EVENTS_URL" \
+    -H "Content-Type: application/json" \
+    -d "{\"source\":\"hybrid-scraper\",\"event_type\":\"ingest_completed\",\"container_id\":\"${SCRAPER_ID:-unknown}\",\"event_payload\":{\"rows_inserted\":${ROWS_OK},\"rows_failed\":${ROWS_FAILED}}}" \
+    >/dev/null 2>&1 || true
+
+echo "[ingest] Done. inserted=${ROWS_OK} failed=${ROWS_FAILED}" >&2

@@ -64,6 +64,11 @@ services:
     image: conscious-feed/hybrid-scraper
     profiles: ["build-only"]
 
+  dev-agent:
+    build: ./containers/dev-agent
+    image: conscious-feed/dev-agent
+    profiles: ["build-only"]
+
 volumes:
   fleet-data:
     name: fleet-data

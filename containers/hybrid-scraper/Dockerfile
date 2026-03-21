@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y \
     npm \
     jq \
     postgresql-client \
+    socat \
     --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
