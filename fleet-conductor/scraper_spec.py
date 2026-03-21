@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 
+from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS
+
 
 @dataclass
 class ScraperMonitoringSpec:
@@ -75,11 +77,11 @@ class ScraperSpec:
             "SCRAPER_NAME": self.name,
             "TARGET_URL": self.target_url,
             "SCRAPING_PROMPT": self.scraping_prompt,
-            "DB_HOST": "db",
-            "DB_PORT": "5432",
-            "DB_NAME": "conscious_feed",
-            "DB_USER": "conscious_feed",
-            "DB_PASS": "conscious_feed",
+            "DB_HOST": DB_HOST,
+            "DB_PORT": DB_PORT,
+            "DB_NAME": DB_NAME,
+            "DB_USER": DB_USER,
+            "DB_PASS": DB_PASS,
         }
         if self.cron_schedule:
             env["CRON_SCHEDULE"] = self.cron_schedule

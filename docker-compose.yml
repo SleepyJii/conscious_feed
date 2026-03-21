@@ -15,29 +15,43 @@ services:
     networks:
       - conscious-feed
     restart: unless-stopped
-
+  
   db:
-    image: postgres:16-alpine
+    image: postgres:16
+    container_name: postgres_db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: conscious_feed
       POSTGRES_USER: conscious_feed
       POSTGRES_PASSWORD: conscious_feed
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./db-init:/docker-entrypoint-initdb.d
-    networks:
-      - conscious-feed
+      POSTGRES_DB: scrape_db
     ports:
       - "5432:5432"
+    volumes:
+      - ./volumes/postgres_data:/var/lib/postgresql/data
+      - ./volumes/db-init:/docker-entrypoint-initdb.d
+    networks:
+      - conscious-feed
 
-  # hybrid-scraper is managed dynamically by the conductor,
-  # not defined statically here.
+  db-restful:
+    build: ./db-restful
+    container_name: restful_db
+    depends_on:
+      - db
+    networks:
+      - conscious-feed
+
+  # hybrid-scraper is managed dynamically by the conductor.
+  # This entry is build-only — it won't start with `docker compose up`.
+  hybrid-scraper:
+    build: ./hybrid-scraper
+    image: conscious-feed/hybrid-scraper
+    profiles: ["build-only"]
 
 volumes:
   conductor-fleet:
+    name: conductor-fleet
   fleet-shared:
-  pgdata:
+    name: fleet-shared
 
 networks:
   conscious-feed:

@@ -2,8 +2,8 @@
 Cron helpers — builds and installs a crontab from ScraperSpec list.
 
 Each scraper with a cron_schedule gets a line that triggers
-`docker compose run --rm` against the fleet compose file, so the
-container's crond handles all scheduling.
+run_wrapper.sh, which runs `docker compose run --rm` and records
+the outcome (exit code, stderr) in the scraper_runs table.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def build_crontab(specs: list[ScraperSpec], compose_file: str) -> str:
     for spec in specs:
         if not spec.cron_schedule:
             continue
-        cmd = f"docker compose -f {compose_file} run --rm {spec.scraper_id}"
+        cmd = f"/app/run_wrapper.sh {compose_file} {spec.scraper_id}"
         lines.append(f"{spec.cron_schedule} {cmd}")
 
     # crontab files must end with a newline

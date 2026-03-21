@@ -1,146 +1,30 @@
 """
-Fleet Conductor API — manages a fleet of hybrid-scraper containers
-via a generated docker-compose file and the Docker CLI.
+Fleet Conductor API — manages a fleet of hybrid-scraper containers.
+
+This module is the thin HTTP layer only. Orchestration logic lives in
+fleet.py, compose management in compose.py, config in config.py.
 """
 
-import json
-import subprocess
-from pathlib import Path
+from __future__ import annotations
 
-import yaml
+import logging
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+import compose
+import fleet
+import monitoring
+from config import SCRAPER_IMAGE
 from scraper_spec import ScraperSpec
-from cron import update_crontab
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+)
+log = logging.getLogger(__name__)
 
 app = FastAPI(title="Fleet Conductor")
-
-COMPOSE_DIR = Path("/app/fleet")
-COMPOSE_FILE = COMPOSE_DIR / "docker-compose.yml"
-FLEET_SHARED = Path("/fleet-shared")
-SCRAPER_IMAGE = "conscious-feed/hybrid-scraper"
-
-STUB_SCRAPER = """\
-import json
-import os
-from playwright.sync_api import sync_playwright
-
-def main():
-    ws = os.environ["WS_ENDPOINT"]
-    url = os.environ.get("TARGET_URL", "")
-
-    with sync_playwright() as p:
-        browser = p.chromium.connect(ws)
-        page = browser.new_context().new_page()
-        page.goto(url)
-
-        for el in page.query_selector_all("p"):
-            text = el.inner_text().strip()
-            if text:
-                print(json.dumps({"url": page.url, "title": page.title(), "content": text}))
-
-        page.close()
-
-if __name__ == "__main__":
-    main()
-"""
-
-# ---------------------------------------------------------------------------
-# Compose helpers
-# ---------------------------------------------------------------------------
-
-def _load_compose() -> dict:
-    if COMPOSE_FILE.exists():
-        return yaml.safe_load(COMPOSE_FILE.read_text()) or {}
-    return _compose_scaffold()
-
-
-def _compose_scaffold() -> dict:
-    """Blank fleet compose with the shared network declared."""
-    return {
-        "services": {},
-        "networks": {
-            "conscious-feed": {
-                "external": True,
-            },
-        },
-        "volumes": {
-            "fleet-shared": {
-                "external": True,
-            },
-        },
-    }
-
-
-def _save_compose(data: dict) -> None:
-    COMPOSE_DIR.mkdir(parents=True, exist_ok=True)
-    # Always ensure shared network + volume declarations are present
-    data.setdefault("networks", {})["conscious-feed"] = {"external": True}
-    data.setdefault("volumes", {})["fleet-shared"] = {"external": True}
-    COMPOSE_FILE.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
-
-
-def _compose_cmd(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["docker", "compose", "-f", str(COMPOSE_FILE), *args],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-
-
-def _next_scraper_id(services: dict) -> str:
-    """Generate the next incremental scraper ID (scraper-001, scraper-002, ...).
-
-    Checks both current compose services and fleet-shared directories
-    so IDs are never reused, even after removal.
-    """
-    max_n = 0
-    # Check current compose services
-    for key in services:
-        if key.startswith("scraper-") and key[8:].isdigit():
-            max_n = max(max_n, int(key[8:]))
-    # Check fleet-shared for previously created (possibly removed) scrapers
-    if FLEET_SHARED.is_dir():
-        for entry in FLEET_SHARED.iterdir():
-            if entry.is_dir() and entry.name.startswith("scraper-") and entry.name[8:].isdigit():
-                max_n = max(max_n, int(entry.name[8:]))
-    return f"scraper-{max_n + 1:03d}"
-
-
-def _init_scraper_dir(scraper_id: str) -> None:
-    """Create /fleet-shared/<scraper_id>/ with a stub scraper.py."""
-    scraper_dir = FLEET_SHARED / scraper_id
-    scraper_dir.mkdir(parents=True, exist_ok=True)
-    script = scraper_dir / "scraper.py"
-    if not script.exists():
-        script.write_text(STUB_SCRAPER)
-
-
-
-def _sync_crontab(compose: dict) -> None:
-    """Rebuild and install the crontab from current compose state."""
-    services = compose.get("services", {})
-    specs = [
-        ScraperSpec.from_compose_service(name, svc)
-        for name, svc in services.items()
-    ]
-    update_crontab(specs, str(COMPOSE_FILE))
-
-
-def _running_states() -> dict[str, str]:
-    """Map service name -> container state from docker compose ps."""
-    result = _compose_cmd("ps", "--format", "json")
-    states: dict[str, str] = {}
-    if result.returncode == 0 and result.stdout.strip():
-        for line in result.stdout.strip().splitlines():
-            try:
-                entry = json.loads(line)
-                states[entry.get("Service", "")] = entry.get("State", "unknown")
-            except json.JSONDecodeError:
-                pass
-    return states
 
 
 # ---------------------------------------------------------------------------
@@ -170,14 +54,49 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/scrapers")
+def list_scrapers():
+    """Return all scrapers with live container state and monitoring data."""
+    data = compose.load()
+    services = data.get("services", {})
+    states = compose.running_states()
+    mon = monitoring.get_monitoring_bulk(list(services.keys()))
+
+    results = []
+    for name, svc in services.items():
+        spec = ScraperSpec.from_compose_service(name, svc)
+        spec.monitoring = mon.get(name)
+        d = spec.to_dict()
+        d["container_state"] = states.get(name, "not running")
+        results.append(d)
+
+    return results
+
+
+@app.get("/scrapers/{scraper_id}")
+def get_scraper(scraper_id: str):
+    """Return a single scraper's config and container state."""
+    data = compose.load()
+    services = data.get("services", {})
+
+    if scraper_id not in services:
+        raise HTTPException(404, f"Scraper '{scraper_id}' not found")
+
+    spec = ScraperSpec.from_compose_service(scraper_id, services[scraper_id])
+    spec.monitoring = monitoring.get_monitoring(scraper_id)
+    states = compose.running_states()
+    d = spec.to_dict()
+    d["container_state"] = states.get(scraper_id, "not running")
+    return d
+
+
 @app.post("/scrapers", status_code=201)
 def add_scraper(body: ScraperAdd):
     """Deploy a new scraper to the fleet."""
-    compose = _load_compose()
-    services = compose.setdefault("services", {})
+    data = compose.load()
+    services = data.setdefault("services", {})
 
-    scraper_id = _next_scraper_id(services)
-
+    scraper_id = fleet.next_scraper_id(services)
     spec = ScraperSpec(
         scraper_id=scraper_id,
         name=body.name,
@@ -185,23 +104,26 @@ def add_scraper(body: ScraperAdd):
         scraping_prompt=body.scraping_prompt,
         cron_schedule=body.cron_schedule,
     )
-    services[spec.scraper_id] = spec.to_compose_service(SCRAPER_IMAGE)
-    _save_compose(compose)
-    _sync_crontab(compose)
-    _init_scraper_dir(spec.scraper_id)
 
-    result = _compose_cmd("up", "-d", spec.scraper_id)
+    services[spec.scraper_id] = spec.to_compose_service(SCRAPER_IMAGE)
+    compose.save(data)
+    fleet.sync_crontab(data)
+    fleet.init_scraper_dir(spec.scraper_id)
+
+    result = compose.run("up", "-d", spec.scraper_id)
     if result.returncode != 0:
+        log.error("docker compose up failed for %s: %s", spec.scraper_id, result.stderr)
         raise HTTPException(500, f"docker compose up failed: {result.stderr}")
 
+    log.info("Added scraper %s (%s)", spec.scraper_id, spec.target_url)
     return spec.to_dict()
 
 
 @app.patch("/scrapers/{scraper_id}")
 def edit_scraper(scraper_id: str, body: ScraperEdit):
     """Edit user-defined params on an existing scraper and recreate it."""
-    compose = _load_compose()
-    services = compose.get("services", {})
+    data = compose.load()
+    services = data.get("services", {})
 
     if scraper_id not in services:
         raise HTTPException(404, f"Scraper '{scraper_id}' not found")
@@ -218,29 +140,32 @@ def edit_scraper(scraper_id: str, body: ScraperEdit):
         spec.cron_schedule = body.cron_schedule
 
     services[scraper_id] = spec.to_compose_service(SCRAPER_IMAGE)
-    _save_compose(compose)
-    _sync_crontab(compose)
+    compose.save(data)
+    fleet.sync_crontab(data)
 
-    result = _compose_cmd("up", "-d", "--force-recreate", scraper_id)
+    result = compose.run("up", "-d", "--force-recreate", scraper_id)
     if result.returncode != 0:
+        log.error("Recreate failed for %s: %s", scraper_id, result.stderr)
         raise HTTPException(500, f"Recreate failed: {result.stderr}")
 
+    log.info("Edited scraper %s", scraper_id)
     return spec.to_dict()
 
 
 @app.delete("/scrapers/{scraper_id}")
 def remove_scraper(scraper_id: str):
     """Stop and remove a scraper from the fleet."""
-    compose = _load_compose()
-    services = compose.get("services", {})
+    data = compose.load()
+    services = data.get("services", {})
 
     if scraper_id not in services:
         raise HTTPException(404, f"Scraper '{scraper_id}' not found")
 
-    _compose_cmd("rm", "-fsv", scraper_id)
+    compose.run("rm", "-fsv", scraper_id)
 
     del services[scraper_id]
-    _save_compose(compose)
-    _sync_crontab(compose)
+    compose.save(data)
+    fleet.sync_crontab(data)
 
+    log.info("Removed scraper %s", scraper_id)
     return {"scraper_id": scraper_id, "status": "removed"}

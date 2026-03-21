@@ -49,7 +49,10 @@ while IFS= read -r line; do
             '$(echo "$content" | sed "s/'/''/g")',
             '$(echo "$raw_json" | sed "s/'/''/g")'::jsonb,
             '$scraped_at'::timestamptz
-         );" 2>&1 || echo "[ingest] ERROR inserting row" >&2
+         );" 2>&1 || { echo "[ingest] ERROR inserting row" >&2; continue; }
+
+    # Echo ingested line to stdout so callers can count rows
+    echo "$line"
 done
 
 echo "[ingest] Done." >&2

@@ -41,31 +41,34 @@ def add_process():
 
     
 def edit_cronjob():
-    # Get current crontab
-    result = subprocess.run(['crontab', '-l'], capture_output=True, text=True)
-    cron_lines = result.stdout.splitlines()
+    result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+    if result.returncode != 0:
+        print("error: no crontab exists")
+        return False
     
-    # Build new cron line with correct order
-    new_cron_line = f"{args.minutes or '*'} {args.hours or '*'} {args.days or '*'} {args.months or '*'} {args.weeks or '*'} {args.command}"
+    existing_cron = result.stdout
+    lines = existing_cron.strip().split('\n')
     
-    updated_cron = []
-    edited = False
-    for line in cron_lines:
-        # Split line to get command part
-        parts = line.split()
-        if len(parts) >= 6:
-            command_part = ' '.join(parts[5:])
-            if command_part == args.command and not edited:
-                updated_cron.append(new_cron_line)
-                edited = True
-                continue
-        updated_cron.append(line)
+    # Find matching command
+    matching_line_idx = None
+    for idx, line in enumerate(lines):
+        if args.command in line:
+            matching_line_idx = idx
+            break
     
-    if not edited:
-        print("No matching cron job found to edit.")
-    else:
-        subprocess.run(['crontab', '-'], input='\n'.join(updated_cron) + '\n', text=True)
-        print("Cron job edited successfully.")
+    if matching_line_idx is None:
+        print(f"error: command '{args.command}' not found in crontab")
+        return False
+    
+    # Build new cron schedule
+    new_cron_schedule = f"{args.minutes or '*'} {args.hours or '*'} {args.days or '*'} {args.months or '*'} {args.weeks or '*'} {args.command}"
+    lines[matching_line_idx] = new_cron_schedule
+    
+    # Write updated crontab
+    updated_cron = '\n'.join(lines) + '\n'
+    subprocess.run(["crontab", "-"], input=updated_cron, text=True)
+    
+    return True
 
 def main():
     args = setup_arguments()
@@ -85,6 +88,7 @@ def main():
         if not args.command:
             print("error: -c/--command unspecified. Cannot edit an unspecified cronjob")
             return
+        edit_cronjob()
 
 if __name__ == "__main__":
     main()
