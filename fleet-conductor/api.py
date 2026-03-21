@@ -26,26 +26,20 @@ import json
 import os
 from playwright.sync_api import sync_playwright
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "playwright-server", "config.json")
-
-def load_ws_endpoint() -> str:
-    with open("/app/playwright-server/config.json") as f:
-        return json.load(f)["ws_endpoint"]
-
 def main():
-    target_url = os.environ.get("TARGET_URL", "")
-    scraper_id = os.environ.get("SCRAPER_ID", "unknown")
-    print(f"[{scraper_id}] scraping {target_url}")
+    ws = os.environ["WS_ENDPOINT"]
+    url = os.environ.get("TARGET_URL", "")
 
-    ws = load_ws_endpoint()
     with sync_playwright() as p:
         browser = p.chromium.connect(ws)
         page = browser.new_context().new_page()
-        page.goto(target_url)
-        print(f"[{scraper_id}] title: {page.title()}")
-        paragraphs = page.query_selector_all("p")
-        for i, el in enumerate(paragraphs):
-            print(f"[{scraper_id}] p[{i}]: {el.inner_text()[:120]}")
+        page.goto(url)
+
+        for el in page.query_selector_all("p"):
+            text = el.inner_text().strip()
+            if text:
+                print(json.dumps({"url": page.url, "title": page.title(), "content": text}))
+
         page.close()
 
 if __name__ == "__main__":

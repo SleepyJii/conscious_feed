@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y \
     xdg-utils \
     nodejs \
     npm \
+    jq \
+    postgresql-client \
     --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
@@ -44,8 +46,8 @@ RUN npx playwright install --with-deps
 # Copy application code
 COPY scrape.py ./
 
-# Copy startup script
-COPY entrypoint.sh ./
-RUN chmod +x entrypoint.sh
+# Copy startup and ingestion scripts
+COPY entrypoint.sh ingest.sh ./
+RUN chmod +x entrypoint.sh ingest.sh
 
 ENTRYPOINT ["./entrypoint.sh"]

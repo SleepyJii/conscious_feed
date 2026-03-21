@@ -16,12 +16,28 @@ services:
       - conscious-feed
     restart: unless-stopped
 
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: conscious_feed
+      POSTGRES_USER: conscious_feed
+      POSTGRES_PASSWORD: conscious_feed
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d
+    networks:
+      - conscious-feed
+    ports:
+      - "5432:5432"
+
   # hybrid-scraper is managed dynamically by the conductor,
   # not defined statically here.
 
 volumes:
   conductor-fleet:
   fleet-shared:
+  pgdata:
 
 networks:
   conscious-feed:

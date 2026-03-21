@@ -26,8 +26,11 @@ done
 
 echo "Browser server ready: $(cat /app/playwright-server/config.json)"
 
-# Run the Python client
-python3 /app/scrape.py
+# Export WS_ENDPOINT so scraper.py can read it from env
+export WS_ENDPOINT=$(jq -r '.ws_endpoint' /app/playwright-server/config.json)
+
+# Run the scraper, pipe JSON output through the ingestion layer
+python3 /app/scrape.py | /app/ingest.sh
 
 # Clean up
 kill $SERVER_PID 2>/dev/null

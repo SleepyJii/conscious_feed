@@ -75,6 +75,11 @@ class ScraperSpec:
             "SCRAPER_NAME": self.name,
             "TARGET_URL": self.target_url,
             "SCRAPING_PROMPT": self.scraping_prompt,
+            "DB_HOST": "db",
+            "DB_PORT": "5432",
+            "DB_NAME": "conscious_feed",
+            "DB_USER": "conscious_feed",
+            "DB_PASS": "conscious_feed",
         }
         if self.cron_schedule:
             env["CRON_SCHEDULE"] = self.cron_schedule
