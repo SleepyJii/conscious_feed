@@ -8,7 +8,9 @@ import logging
 
 import psycopg2
 
-from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS
+from pathlib import Path
+
+from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS, FLEET_DATA
 from scraper_spec import ScraperMonitoringSpec
 
 log = logging.getLogger(__name__)
@@ -140,3 +142,34 @@ def get_monitoring_bulk(scraper_ids: list[str]) -> dict[str, ScraperMonitoringSp
         )
 
     return result
+
+
+def get_last_error(scraper_id: str) -> str:
+    """Get stderr_tail from the most recent failed run.
+
+    Also writes it to /fleet-data/{scraper_id}/last_error.txt so the
+    dev-agent can read it without env-var escaping issues.
+    """
+    error_text = ""
+    try:
+        conn = _connect()
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT stderr_tail FROM scraper_runs
+               WHERE scraper_id = %s AND exit_code != 0
+               ORDER BY started_at DESC LIMIT 1""",
+            (scraper_id,),
+        )
+        row = cur.fetchone()
+        conn.close()
+        error_text = row[0] if row else ""
+    except Exception as e:
+        log.warning("Failed to query last error for %s: %s", scraper_id, e)
+
+    error_file = FLEET_DATA / scraper_id / "last_error.txt"
+    try:
+        error_file.write_text(error_text)
+    except OSError as e:
+        log.warning("Failed to write last_error.txt for %s: %s", scraper_id, e)
+
+    return error_text

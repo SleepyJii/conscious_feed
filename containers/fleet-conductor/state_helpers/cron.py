@@ -16,10 +16,15 @@ from scraper_spec import ScraperSpec
 CRONTAB_PATH = Path("/fleet-data/crontab")
 
 
-def build_crontab(specs: list[ScraperSpec], compose_file: str) -> str:
+def build_crontab(
+    specs: list[ScraperSpec],
+    compose_file: str,
+    extra_lines: list[str] | None = None,
+) -> str:
     """Generate crontab contents from a list of ScraperSpecs.
 
     Only specs with a non-empty cron_schedule are included.
+    extra_lines are appended verbatim (e.g. system cron jobs like repair).
     Returns the full crontab file as a string.
     """
     lines: list[str] = []
@@ -28,6 +33,9 @@ def build_crontab(specs: list[ScraperSpec], compose_file: str) -> str:
             continue
         cmd = f"/app/run_wrapper.sh {compose_file} {spec.scraper_id}"
         lines.append(f"{spec.cron_schedule} {cmd}")
+
+    if extra_lines:
+        lines.extend(extra_lines)
 
     # crontab files must end with a newline
     if lines:
@@ -47,7 +55,11 @@ def install_crontab(content: str) -> None:
         subprocess.run(["crontab", "-r"], capture_output=True)
 
 
-def update_crontab(specs: list[ScraperSpec], compose_file: str) -> None:
+def update_crontab(
+    specs: list[ScraperSpec],
+    compose_file: str,
+    extra_lines: list[str] | None = None,
+) -> None:
     """One-shot: rebuild and install the crontab from current specs."""
-    content = build_crontab(specs, compose_file)
+    content = build_crontab(specs, compose_file, extra_lines=extra_lines)
     install_crontab(content)

@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 import state_helpers as state
 import api_helpers as api
 import fleet
-from config import FLEET_DATA, SCRAPER_IMAGE
+from config import FLEET_DATA, SCRAPER_IMAGE, DEV_AGENT_IMAGE
 from scraper_spec import ScraperSpec
 
 logging.basicConfig(
@@ -38,6 +38,7 @@ class ScraperAdd(BaseModel):
     target_url: str = Field(description="URL the scraper should target")
     scraping_prompt: str = Field(description="Natural-language description of what to scrape")
     cron_schedule: str = Field(default="", description="Cron expression, e.g. '*/30 * * * *'")
+    autorepair: bool = Field(default=False, description="Auto-trigger repair on failure")
 
 
 class ScraperEdit(BaseModel):
@@ -45,6 +46,12 @@ class ScraperEdit(BaseModel):
     target_url: str | None = None
     scraping_prompt: str | None = None
     cron_schedule: str | None = None
+    autorepair: bool | None = None
+
+
+class RepairRequest(BaseModel):
+    lazy: bool = Field(default=True, description="Skip if last run succeeded")
+    sockpuppet: bool = Field(default=False, description="Keep container alive for external agent exec")
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +80,24 @@ def list_scrapers():
         results.append(d)
 
     return results
+
+
+@app.get("/scrapers/repair-candidates")
+def list_repair_candidates():
+    """Return scraper IDs with autorepair=True that are currently failing."""
+    data = state.load()
+    services = data.get("services", {})
+
+    candidates = []
+    for name, svc in services.items():
+        spec = ScraperSpec.from_compose_service(name, svc)
+        if not spec.autorepair:
+            continue
+        mon = api.get_monitoring(name)
+        if mon.health in ("failing", "degraded"):
+            candidates.append(name)
+
+    return {"candidates": candidates}
 
 
 @app.get("/scrapers/{scraper_id}")
@@ -104,6 +129,7 @@ def add_scraper(body: ScraperAdd):
         target_url=body.target_url,
         scraping_prompt=body.scraping_prompt,
         cron_schedule=body.cron_schedule,
+        autorepair=body.autorepair,
     )
 
     services[spec.scraper_id] = spec.to_compose_service(SCRAPER_IMAGE)
@@ -140,6 +166,8 @@ def edit_scraper(scraper_id: str, body: ScraperEdit):
         spec.scraping_prompt = body.scraping_prompt
     if body.cron_schedule is not None:
         spec.cron_schedule = body.cron_schedule
+    if body.autorepair is not None:
+        spec.autorepair = body.autorepair
 
     services[scraper_id] = spec.to_compose_service(SCRAPER_IMAGE)
     state.save(data)
@@ -165,12 +193,10 @@ def run_scraper(scraper_id: str):
         raise HTTPException(404, f"Scraper '{scraper_id}' not found")
 
     log.info("Manual run triggered for %s", scraper_id)
-    api.emit("scraper_launched", container_id=scraper_id, payload={"trigger": "manual"})
-    result = state.run("run", "--rm", scraper_id, timeout=300)
-    api.emit("scraper_run_completed", container_id=scraper_id, payload={
-        "trigger": "manual",
-        "exit_code": result.returncode,
-    })
+    result = subprocess.run(
+        ["/app/run_wrapper.sh", str(FLEET_DATA / "docker-compose.yml"), scraper_id],
+        capture_output=True, text=True, timeout=300,
+    )
 
     return {
         "scraper_id": scraper_id,
@@ -229,6 +255,14 @@ def stop_scraper(scraper_id: str):
 
     stopped = []
 
+    # Kill repair container if running
+    repair_result = subprocess.run(
+        ["docker", "rm", "-f", f"repair-{scraper_id}"],
+        capture_output=True, text=True,
+    )
+    if repair_result.returncode == 0:
+        stopped.append(f"repair-{scraper_id}")
+
     # Stop any running containers for this scraper (debug or normal)
     # docker compose rm handles the compose-managed container
     result = state.run("rm", "-fsv", scraper_id)
@@ -256,6 +290,80 @@ def stop_scraper(scraper_id: str):
         "stopped": stopped,
         "status": "stopped",
     }
+
+@app.post("/scrapers/{scraper_id}/repair")
+def repair_scraper(scraper_id: str, body: RepairRequest = RepairRequest()):
+    """Launch a dev-agent to repair a broken scraper.
+
+    lazy=True (default) skips if the last run succeeded.
+    sockpuppet=True keeps the container alive with sleep infinity
+    for an external agent to exec into.
+    """
+    data = state.load()
+    services = data.get("services", {})
+
+    if scraper_id not in services:
+        raise HTTPException(404, f"Scraper '{scraper_id}' not found")
+
+    spec = ScraperSpec.from_compose_service(scraper_id, services[scraper_id])
+
+    if body.lazy:
+        mon = api.get_monitoring(scraper_id)
+        if mon.health == "healthy":
+            api.emit("repair_skipped", container_id=scraper_id, payload={
+                "reason": "last run succeeded",
+            })
+            return {"scraper_id": scraper_id, "status": "skipped", "reason": "last run succeeded"}
+
+    # Skip if a repair container is already running
+    ps_check = subprocess.run(
+        ["docker", "ps", "-q", "--filter", f"name=repair-{scraper_id}"],
+        capture_output=True, text=True,
+    )
+    if ps_check.stdout.strip():
+        return {"scraper_id": scraper_id, "status": "skipped", "reason": "repair already running"}
+
+    # Write last error to file for the dev-agent to read
+    api.get_last_error(scraper_id)
+
+    cmd = [
+        "docker", "run", "-d",
+        "--name", f"repair-{scraper_id}",
+        "--network", "conscious-feed",
+        "-v", "fleet-data:/fleet-data",
+        "-e", f"SCRAPER_ID={spec.scraper_id}",
+        "-e", f"TARGET_URL={spec.target_url}",
+        "-e", f"SCRAPING_PROMPT={spec.scraping_prompt}",
+        "-e", f"SCRAPER_DIR=/fleet-data/{spec.scraper_id}",
+    ]
+
+    if body.sockpuppet:
+        cmd.extend(["-e", "SOCKPUPPET=1"])
+
+    cmd.append(DEV_AGENT_IMAGE)
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        log.error("Repair launch failed for %s: %s", scraper_id, result.stderr)
+        raise HTTPException(500, f"Repair launch failed: {result.stderr}")
+
+    container_id = result.stdout.strip()
+
+    api.emit("repair_launched", container_id=scraper_id, payload={
+        "docker_container_id": container_id,
+        "sockpuppet": body.sockpuppet,
+        "lazy": body.lazy,
+    })
+
+    log.info("Repair launched for %s (sockpuppet=%s)", scraper_id, body.sockpuppet)
+    return {
+        "scraper_id": scraper_id,
+        "container_id": container_id,
+        "status": "repair launched",
+        "sockpuppet": body.sockpuppet,
+    }
+
 
 @app.delete("/scrapers/{scraper_id}")
 def remove_scraper(scraper_id: str):
@@ -300,12 +408,16 @@ def batch_update_scrapers(scraper_json : list[dict]):
         if scraper_id in services:
             existing_spec = ScraperSpec.from_compose_service(scraper_id, services[scraper_id])
 
+        autorepair = scraper_data.get("autorepair")
+        if autorepair is None and existing_spec:
+            autorepair = existing_spec.autorepair
         spec = ScraperSpec(
             scraper_id=scraper_id,
             name=scraper_data.get("name") or existing_spec.name if existing_spec else "",
             target_url=scraper_data.get("target_url") or existing_spec.target_url if existing_spec else "",
             scraping_prompt=scraper_data.get("scraping_prompt") or existing_spec.scraping_prompt if existing_spec else "",
             cron_schedule=scraper_data.get("cron_schedule") or existing_spec.cron_schedule if existing_spec else "",
+            autorepair=bool(autorepair),
         )
 
         services[spec.scraper_id] = spec.to_compose_service(SCRAPER_IMAGE)

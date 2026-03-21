@@ -37,6 +37,7 @@ class ScraperSpec:
     scraping_prompt: str
     name: str = ""
     cron_schedule: str = ""
+    autorepair: bool = False
 
     monitoring: ScraperMonitoringSpec | None = field(default=None, repr=False)
 
@@ -54,6 +55,7 @@ class ScraperSpec:
             "target_url": self.target_url,
             "scraping_prompt": self.scraping_prompt,
             "cron_schedule": self.cron_schedule,
+            "autorepair": self.autorepair,
         }
         if self.monitoring is not None:
             d["monitoring"] = self.monitoring.to_dict()
@@ -66,6 +68,7 @@ class ScraperSpec:
             "target_url": self.target_url,
             "scraping_prompt": self.scraping_prompt,
             "cron_schedule": self.cron_schedule,
+            "autorepair": self.autorepair,
         }
 
     # ---- compose translation ----
@@ -85,11 +88,13 @@ class ScraperSpec:
         }
         if self.cron_schedule:
             env["CRON_SCHEDULE"] = self.cron_schedule
+        if self.autorepair:
+            env["AUTOREPAIR"] = "1"
 
         return {
             "image": image,
             "container_name": self.scraper_id,
-            "restart": "unless-stopped",
+            "restart": "no",
             "environment": env,
             "networks": ["conscious-feed"],
             "volumes": ["fleet-data:/fleet-data"],
@@ -105,4 +110,5 @@ class ScraperSpec:
             target_url=env.get("TARGET_URL", ""),
             scraping_prompt=env.get("SCRAPING_PROMPT", ""),
             cron_schedule=env.get("CRON_SCHEDULE", ""),
+            autorepair=env.get("AUTOREPAIR", "") == "1",
         )

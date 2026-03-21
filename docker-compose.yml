@@ -3,6 +3,9 @@
 services:
   conductor:
     build: ./containers/fleet-conductor
+    environment:
+      REPAIR_CRON_SCHEDULE: "* * * * *"
+      MAX_CONCURRENT_REPAIRS: "1"
     ports:
       - "8000:8000"
     volumes:

@@ -12,5 +12,6 @@ RUN playwright install --with-deps chromium
 WORKDIR /app
 
 COPY . .
+RUN chmod +x entrypoint.sh
 
-ENTRYPOINT ["sleep", "infinity"]
+ENTRYPOINT ["./entrypoint.sh"]

@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 # Base tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl gnupg \
+    ca-certificates curl gnupg jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Docker CLI + Compose plugin
@@ -22,7 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN chmod +x entrypoint.sh run_wrapper.sh
+RUN chmod +x entrypoint.sh run_wrapper.sh launch-repairs.sh
 
 EXPOSE 8000
 
