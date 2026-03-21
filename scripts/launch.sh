@@ -4,4 +4,5 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-docker compose up "$@"
+# TODO: launch all services together once UI is integrated
+docker compose up conductor db db-restful "$@"

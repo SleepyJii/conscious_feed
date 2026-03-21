@@ -27,8 +27,11 @@ def main():
 
     with sync_playwright() as p:
         browser = p.chromium.connect(ws)
-        page = browser.new_context().new_page()
-        page.goto(url)
+        ctx = browser.new_context(
+            user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        )
+        page = ctx.new_page()
+        page.goto(url, wait_until="networkidle")
 
         for el in page.query_selector_all("p"):
             text = el.inner_text().strip()

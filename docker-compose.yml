@@ -39,6 +39,23 @@ services:
       - "5000:5000"
     networks:
       - conscious-feed
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  scraper-ui:
+    build: ./containers/scraper-ui
+    container_name: scraper_ui
+    depends_on:
+      db-restful:
+        condition: service_healthy
+    ports:
+      - "5173:5173"
+    networks:
+      - conscious-feed
 
   # hybrid-scraper is managed dynamically by the conductor.
   # This entry is build-only — it won't start with `docker compose up`.

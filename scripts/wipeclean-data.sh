@@ -10,11 +10,14 @@ cd "$SCRIPT_DIR/.."
 echo "Stopping and removing all containers..."
 docker compose down --remove-orphans
 
+echo "Clearing local volume data (via Docker for permissions)..."
+docker run --rm -v "${PWD}/volumes:/volumes" alpine sh -c "rm -rf /volumes/fleet-data/* /volumes/postgres_data/*"
+echo "  cleared volumes/fleet-data and volumes/postgres_data"
+
 echo "Removing named Docker volumes..."
 docker volume rm fleet-data 2>/dev/null && echo "  removed fleet-data" || echo "  fleet-data not found (skipping)"
 docker volume rm postgres-data 2>/dev/null && echo "  removed postgres-data" || echo "  postgres-data not found (skipping)"
 
-# Legacy volumes from before the refactor
 # Legacy volumes from before refactors
 docker volume rm conductor-fleet 2>/dev/null && echo "  removed conductor-fleet" || echo "  conductor-fleet not found (skipping)"
 docker volume rm fleet-shared 2>/dev/null && echo "  removed fleet-shared" || echo "  fleet-shared not found (skipping)"

@@ -152,6 +152,26 @@ def edit_scraper(scraper_id: str, body: ScraperEdit):
     return spec.to_dict()
 
 
+@app.post("/scrapers/{scraper_id}/run")
+def run_scraper(scraper_id: str):
+    """Manually trigger a single scraper run (same as what cron does)."""
+    data = compose.load()
+    services = data.get("services", {})
+
+    if scraper_id not in services:
+        raise HTTPException(404, f"Scraper '{scraper_id}' not found")
+
+    log.info("Manual run triggered for %s", scraper_id)
+    result = compose.run("run", "--rm", scraper_id, timeout=300)
+
+    return {
+        "scraper_id": scraper_id,
+        "exit_code": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+
+
 @app.delete("/scrapers/{scraper_id}")
 def remove_scraper(scraper_id: str):
     """Stop and remove a scraper from the fleet."""

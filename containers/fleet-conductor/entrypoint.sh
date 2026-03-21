@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Ensure files created in shared volumes are world-readable/writable
+umask 000
+
 # Start crond in the background
 cron
 
