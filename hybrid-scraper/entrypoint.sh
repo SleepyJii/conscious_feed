@@ -1,5 +1,16 @@
 #!/bin/sh
 
+# If launched by the fleet conductor, symlink scrape.py from fleet-shared
+if [ -d "/fleet-shared" ] && [ -n "$SCRAPER_ID" ]; then
+    SHARED_SCRIPT="/fleet-shared/$SCRAPER_ID/scraper.py"
+    if [ -f "$SHARED_SCRIPT" ]; then
+        echo "Fleet mode: linking scrape.py -> $SHARED_SCRIPT"
+        ln -sf "$SHARED_SCRIPT" /app/scrape.py
+    else
+        echo "Fleet mode: WARNING — $SHARED_SCRIPT not found, using built-in scrape.py"
+    fi
+fi
+
 # Start the browser server in the background
 node /app/playwright-server/browser_server.js &
 SERVER_PID=$!

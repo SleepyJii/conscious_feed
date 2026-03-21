@@ -1,0 +1,28 @@
+# Root compose — brings up all ConsciousFeed services
+
+services:
+  conductor:
+    build: ./fleet-conductor
+    ports:
+      - "8000:8000"
+    volumes:
+      # DinD: access the host Docker daemon to manage scraper containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persist the generated fleet compose file across restarts
+      - conductor-fleet:/app/fleet
+      # Shared volume for per-scraper scripts
+      - fleet-shared:/fleet-shared
+    networks:
+      - conscious-feed
+    restart: unless-stopped
+
+  # hybrid-scraper is managed dynamically by the conductor,
+  # not defined statically here.
+
+volumes:
+  conductor-fleet:
+  fleet-shared:
+
+networks:
+  conscious-feed:
+    name: conscious-feed
