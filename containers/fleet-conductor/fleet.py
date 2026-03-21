@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 import compose
-from config import COMPOSE_FILE, FLEET_SHARED
+from config import COMPOSE_FILE, FLEET_DATA
 from cron import update_crontab
 from scraper_spec import ScraperSpec
 
@@ -45,23 +45,23 @@ if __name__ == "__main__":
 def next_scraper_id(services: dict) -> str:
     """Generate the next incremental scraper ID (scraper-001, scraper-002, ...).
 
-    Checks both current compose services and fleet-shared directories
+    Checks both current compose services and fleet-data directories
     so IDs are never reused, even after removal.
     """
     max_n = 0
     for key in services:
         if key.startswith("scraper-") and key[8:].isdigit():
             max_n = max(max_n, int(key[8:]))
-    if FLEET_SHARED.is_dir():
-        for entry in FLEET_SHARED.iterdir():
+    if FLEET_DATA.is_dir():
+        for entry in FLEET_DATA.iterdir():
             if entry.is_dir() and entry.name.startswith("scraper-") and entry.name[8:].isdigit():
                 max_n = max(max_n, int(entry.name[8:]))
     return f"scraper-{max_n + 1:03d}"
 
 
 def init_scraper_dir(scraper_id: str) -> None:
-    """Create /fleet-shared/<scraper_id>/ with a stub scraper.py."""
-    scraper_dir = FLEET_SHARED / scraper_id
+    """Create /fleet-data/<scraper_id>/ with a stub scraper.py."""
+    scraper_dir = FLEET_DATA / scraper_id
     scraper_dir.mkdir(parents=True, exist_ok=True)
     script = scraper_dir / "scraper.py"
     if not script.exists():

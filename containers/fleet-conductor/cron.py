@@ -13,7 +13,7 @@ from pathlib import Path
 
 from scraper_spec import ScraperSpec
 
-CRONTAB_PATH = Path("/app/fleet/crontab")
+CRONTAB_PATH = Path("/fleet-data/crontab")
 
 
 def build_crontab(specs: list[ScraperSpec], compose_file: str) -> str:

@@ -1,8 +1,8 @@
 #!/bin/sh
 
-# If launched by the fleet conductor, symlink scrape.py from fleet-shared
-if [ -d "/fleet-shared" ] && [ -n "$SCRAPER_ID" ]; then
-    SHARED_SCRIPT="/fleet-shared/$SCRAPER_ID/scraper.py"
+# If launched by the fleet conductor, symlink scrape.py from fleet-data
+if [ -d "/fleet-data" ] && [ -n "$SCRAPER_ID" ]; then
+    SHARED_SCRIPT="/fleet-data/$SCRAPER_ID/scraper.py"
     if [ -f "$SHARED_SCRIPT" ]; then
         echo "Fleet mode: linking scrape.py -> $SHARED_SCRIPT"
         ln -sf "$SHARED_SCRIPT" /app/scrape.py

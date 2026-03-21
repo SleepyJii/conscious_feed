@@ -4,12 +4,9 @@ Shared configuration — paths, image names, database credentials.
 
 from pathlib import Path
 
-# Compose management
-COMPOSE_DIR = Path("/app/fleet")
-COMPOSE_FILE = COMPOSE_DIR / "docker-compose.yml"
-
-# Fleet shared volume (conductor writes scraper scripts, scrapers read them)
-FLEET_SHARED = Path("/fleet-shared")
+# Fleet data volume (compose file, per-scraper scripts, shared state)
+FLEET_DATA = Path("/fleet-data")
+COMPOSE_FILE = FLEET_DATA / "docker-compose.yml"
 
 # Docker image for scraper containers
 SCRAPER_IMAGE = "conscious-feed/hybrid-scraper"

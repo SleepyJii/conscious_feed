@@ -92,7 +92,7 @@ class ScraperSpec:
             "restart": "unless-stopped",
             "environment": env,
             "networks": ["conscious-feed"],
-            "volumes": ["fleet-shared:/fleet-shared"],
+            "volumes": ["fleet-data:/fleet-data"],
         }
 
     @classmethod

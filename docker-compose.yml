@@ -2,16 +2,14 @@
 
 services:
   conductor:
-    build: ./fleet-conductor
+    build: ./containers/fleet-conductor
     ports:
       - "8000:8000"
     volumes:
       # DinD: access the host Docker daemon to manage scraper containers
       - /var/run/docker.sock:/var/run/docker.sock
-      # Persist the generated fleet compose file across restarts
-      - conductor-fleet:/app/fleet
-      # Shared volume for per-scraper scripts
-      - fleet-shared:/fleet-shared
+      # Fleet data: compose file, per-scraper scripts, shared state
+      - fleet-data:/fleet-data
     networks:
       - conscious-feed
     restart: unless-stopped
@@ -27,31 +25,43 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./volumes/postgres_data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
       - ./volumes/db-init:/docker-entrypoint-initdb.d
     networks:
       - conscious-feed
 
   db-restful:
-    build: ./db-restful
+    build: ./containers/db-restful
     container_name: restful_db
     depends_on:
       - db
+    ports:
+      - "5000:5000"
     networks:
       - conscious-feed
 
   # hybrid-scraper is managed dynamically by the conductor.
   # This entry is build-only — it won't start with `docker compose up`.
   hybrid-scraper:
-    build: ./hybrid-scraper
+    build: ./containers/hybrid-scraper
     image: conscious-feed/hybrid-scraper
     profiles: ["build-only"]
 
 volumes:
-  conductor-fleet:
-    name: conductor-fleet
-  fleet-shared:
-    name: fleet-shared
+  fleet-data:
+    name: fleet-data
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/volumes/fleet-data
+  postgres-data:
+    name: postgres-data
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/volumes/postgres_data
 
 networks:
   conscious-feed:

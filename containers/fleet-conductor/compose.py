@@ -10,7 +10,7 @@ import subprocess
 
 import yaml
 
-from config import COMPOSE_DIR, COMPOSE_FILE
+from config import FLEET_DATA, COMPOSE_FILE
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ def scaffold() -> dict:
             "conscious-feed": {"external": True},
         },
         "volumes": {
-            "fleet-shared": {"external": True},
+            "fleet-data": {"external": True},
         },
     }
 
@@ -37,9 +37,9 @@ def load() -> dict:
 
 def save(data: dict) -> None:
     """Write the fleet compose file, ensuring shared infra declarations."""
-    COMPOSE_DIR.mkdir(parents=True, exist_ok=True)
+    FLEET_DATA.mkdir(parents=True, exist_ok=True)
     data.setdefault("networks", {})["conscious-feed"] = {"external": True}
-    data.setdefault("volumes", {})["fleet-shared"] = {"external": True}
+    data.setdefault("volumes", {})["fleet-data"] = {"external": True}
     COMPOSE_FILE.write_text(
         yaml.dump(data, default_flow_style=False, sort_keys=False)
     )
