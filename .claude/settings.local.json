@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__conscious-feed-tools__*",
+      "Skill(repair-scraper)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "conscious-feed-tools"
+  ]
+}
