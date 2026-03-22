@@ -1,0 +1,10 @@
+{
+  "ANTHROPIC_API_KEY": "sk-ant-your-key-here",
+  "MODEL_ALIASES": {
+    "haiku": "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-4-6",
+    "opus": "claude-opus-4-6"
+  },
+  "REPAIR_CRON_SCHEDULE": "* * * * *",
+  "MAX_CONCURRENT_REPAIRS": "1"
+}
