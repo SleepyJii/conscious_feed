@@ -15,6 +15,7 @@ Streamable HTTP on `0.0.0.0:8080`. Reachable on the `conscious-feed` Docker netw
 | `SCRAPING_PROMPT` | User's natural-language description of what to extract |
 | `SCRAPER_DIR` | `/fleet-data/{scraper_id}` — contains `scraper.py`, `last_error.txt` |
 | `WS_ENDPOINT` | WebSocket URL to the debug scraper's live Playwright browser |
+| `AGENT_NOTES` | Persistent notes from previous repair agents about this scraper |
 | `SOCKPUPPET` | Set to `1` to start MCP server instead of running `repair.py` |
 
 ## Tools
@@ -37,6 +38,9 @@ Writes `content` to `{SCRAPER_DIR}/scraper.py`. Since fleet-data is bind-mounted
 ### `test_scraper_script()`
 Runs `scraper.py` as a subprocess with `WS_ENDPOINT` and `TARGET_URL` set, connecting to the debug scraper's live browser. Returns stdout, stderr, exit_code. 60s timeout.
 
+### `update_agent_notes(notes)`
+Updates the `agent_notes` field for this scraper on the conductor. Use to leave short notes (a few sentences) about implementation details, past issues, or why the script works the way it does. These notes persist across repair sessions so future agents have context.
+
 ## Scraper Script Contract
 
 Scripts written via `write_scraper_script` must:
@@ -53,3 +57,4 @@ Scripts written via `write_scraper_script` must:
 4. `write_scraper_script(fixed_script)` — write the fix
 5. `test_scraper_script()` — verify it works
 6. Repeat 3-5 as needed
+7. `update_agent_notes(notes)` — leave context for future repairs

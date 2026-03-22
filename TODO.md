@@ -9,5 +9,3 @@
 ## Pre-production cleanup
 - [x] ~~Stop exposing internal service ports to host~~ — only UI (:5173) and MCP proxy (:9200) are exposed. Internal services communicate via Docker network.
 - [x] ~~Configure scripts to launch UI + backend together.~~ — `launch.sh` now launches all services.
-- [ ] Clean up ad-hoc bash API calls (curl in `run_wrapper.sh`, `ingest.sh`). Inline JSON construction and `curl` fire-and-forget is fragile — consider a shared shell helper or a lightweight client script.
-- [ ] Route `ingest.sh` DB writes through db-restful instead of direct psql. Needs a batch `/ingest` endpoint to avoid per-row HTTP overhead — the streaming pipeline is performance-sensitive.

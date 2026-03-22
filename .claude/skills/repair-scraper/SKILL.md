@@ -49,13 +49,17 @@ Call `test_scraper_script` with `scraper_id: "$ARGUMENTS"` to run the script aga
 
 If it fails, iterate: read the error, adjust the script, test again.
 
-## Step 6: Clean up and verify
+## Step 6: Leave agent notes
+
+Call `update_agent_notes` with `scraper_id: "$ARGUMENTS"` and a short summary of what you found and fixed (e.g. selectors used, anti-bot workarounds, page structure quirks). These notes persist across repair sessions so future agents have context.
+
+## Step 7: Clean up and verify
 
 Call `stop_scraper` with `scraper_id: "$ARGUMENTS"` to stop repair containers.
 
 Call `run_scraper` with `scraper_id: "$ARGUMENTS"` for a real end-to-end test.
 
-## Step 7: Report config issues
+## Step 8: Report config issues
 
 If during diagnosis you found problems **not fixable by editing the scraper script**, report them clearly:
 

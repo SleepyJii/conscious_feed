@@ -143,12 +143,6 @@ docker exec mcp_proxy curl -s http://restful_db:5000/rss_content
 
 ### Current State
 - Main scraping loop works end-to-end: conductor → cron → hybrid-scraper → ingest → PostgreSQL
-- Repair pipeline structurally complete: cron detection → debug launch → dev-agent MCP server → sockpuppet repair via Claude Code skills
-- Autonomous repair (`repair.py` via Claude Agent SDK) implemented but blocked on cost controls — needs repair budget/throttling before enabling
+- Repair pipeline fully operational: cron detection → debug launch → dev-agent (autonomous via Claude Agent SDK, or sockpuppet via MCP)
 - MCP proxy operational: all conductor + db-restful endpoints exposed as tools, dev-agent forwarding works
 - UI functional with scraper config + feed view
-
-### Next Steps
-- Schema changes to support more sophisticated repair strategies and cost tracking
-- Repair budget/throttling to prevent runaway API costs from autonomous agents
-- Fleet visualisation in UI: live container states, agent activity, repair history
