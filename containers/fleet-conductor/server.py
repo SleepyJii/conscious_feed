@@ -40,7 +40,8 @@ class ScraperAdd(BaseModel):
     target_url: str = Field(description="URL the scraper should target")
     scraping_prompt: str = Field(description="Natural-language description of what to scrape")
     cron_schedule: str = Field(default="", description="Cron expression, e.g. '*/30 * * * *'")
-    autorepair: bool = Field(default=False, description="Auto-trigger repair on failure")
+    repair_policy: list[str] = Field(default=["RETRY"], description="Ordered steps on consecutive failures: RETRY, STALL, REPAIR:<model>")
+    agent_notes: str = Field(default="SCRAPER NOT YET IMPLEMENTED", description="Short notes from repair agents about implementation details")
 
 
 class ScraperEdit(BaseModel):
@@ -48,12 +49,14 @@ class ScraperEdit(BaseModel):
     target_url: str | None = None
     scraping_prompt: str | None = None
     cron_schedule: str | None = None
-    autorepair: bool | None = None
+    repair_policy: list[str] | None = None
+    agent_notes: str | None = None
 
 
 class RepairRequest(BaseModel):
     lazy: bool = Field(default=True, description="Skip if last run succeeded")
     sockpuppet: bool = Field(default=False, description="Keep container alive for external agent exec")
+    model: str = Field(default="", description="Model name for repair agent (from repair_policy)")
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +82,7 @@ def list_scrapers():
         spec.monitoring = mon.get(name)
         d = spec.to_dict()
         d["container_state"] = states.get(name, "not running")
+        d["current_policy_action"] = spec.current_policy_action()
         results.append(d)
 
     return results
@@ -86,18 +90,20 @@ def list_scrapers():
 
 @app.get("/scrapers/repair-candidates")
 def list_repair_candidates():
-    """Return scraper IDs with autorepair=True that are currently failing."""
+    """Return scrapers whose current repair policy step is a REPAIR action."""
+    from scraper_spec import evaluate_repair_policy
+
     data = state.load()
     services = data.get("services", {})
 
     candidates = []
     for name, svc in services.items():
         spec = ScraperSpec.from_compose_service(name, svc)
-        if not spec.autorepair:
-            continue
         mon = api.get_monitoring(name)
-        if mon.health in ("failing", "degraded"):
-            candidates.append(name)
+        action = evaluate_repair_policy(spec.repair_policy, mon.consecutive_failures)
+        if action.startswith("REPAIR:"):
+            model = action.split(":", 1)[1]
+            candidates.append({"scraper_id": name, "model": model})
 
     return {"candidates": candidates}
 
@@ -146,6 +152,7 @@ def get_scraper(scraper_id: str):
     states = state.running_states()
     d = spec.to_dict()
     d["container_state"] = states.get(scraper_id, "not running")
+    d["current_policy_action"] = spec.current_policy_action()
     return d
 
 @app.post("/scrapers", status_code=201)
@@ -161,7 +168,8 @@ def add_scraper(body: ScraperAdd):
         target_url=body.target_url,
         scraping_prompt=body.scraping_prompt,
         cron_schedule=body.cron_schedule,
-        autorepair=body.autorepair,
+        repair_policy=body.repair_policy,
+        agent_notes=body.agent_notes,
     )
 
     services[spec.scraper_id] = spec.to_compose_service(SCRAPER_IMAGE)
@@ -198,8 +206,10 @@ def edit_scraper(scraper_id: str, body: ScraperEdit):
         spec.scraping_prompt = body.scraping_prompt
     if body.cron_schedule is not None:
         spec.cron_schedule = body.cron_schedule
-    if body.autorepair is not None:
-        spec.autorepair = body.autorepair
+    if body.repair_policy is not None:
+        spec.repair_policy = body.repair_policy
+    if body.agent_notes is not None:
+        spec.agent_notes = body.agent_notes
 
     services[scraper_id] = spec.to_compose_service(SCRAPER_IMAGE)
     state.save(data)
@@ -409,7 +419,10 @@ def repair_scraper(scraper_id: str, body: RepairRequest = RepairRequest()):
         "SCRAPING_PROMPT": spec.scraping_prompt,
         "SCRAPER_DIR": f"/fleet-data/{spec.scraper_id}",
         "WS_ENDPOINT": ws_endpoint,
+        "AGENT_NOTES": spec.agent_notes,
     }
+    if body.model:
+        repair_env["REPAIR_MODEL"] = body.model
     if body.sockpuppet:
         repair_env["SOCKPUPPET"] = "1"
 
@@ -507,16 +520,24 @@ def batch_update_scrapers(scraper_json : list[dict]):
         if scraper_id in services:
             existing_spec = ScraperSpec.from_compose_service(scraper_id, services[scraper_id])
 
-        autorepair = scraper_data.get("autorepair")
-        if autorepair is None and existing_spec:
-            autorepair = existing_spec.autorepair
+        repair_policy = scraper_data.get("repair_policy")
+        if repair_policy is None and existing_spec:
+            repair_policy = existing_spec.repair_policy
+        if repair_policy is None:
+            repair_policy = ["RETRY"]
+        agent_notes = scraper_data.get("agent_notes")
+        if agent_notes is None and existing_spec:
+            agent_notes = existing_spec.agent_notes
+        if agent_notes is None:
+            agent_notes = "SCRAPER NOT YET IMPLEMENTED"
         spec = ScraperSpec(
             scraper_id=scraper_id,
             name=scraper_data.get("name") or existing_spec.name if existing_spec else "",
             target_url=scraper_data.get("target_url") or existing_spec.target_url if existing_spec else "",
             scraping_prompt=scraper_data.get("scraping_prompt") or existing_spec.scraping_prompt if existing_spec else "",
             cron_schedule=scraper_data.get("cron_schedule") or existing_spec.cron_schedule if existing_spec else "",
-            autorepair=bool(autorepair),
+            repair_policy=repair_policy,
+            agent_notes=agent_notes,
         )
 
         services[spec.scraper_id] = spec.to_compose_service(SCRAPER_IMAGE)

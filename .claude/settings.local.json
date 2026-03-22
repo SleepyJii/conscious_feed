@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "mcp__conscious-feed-tools__*",
-      "Skill(repair-scraper)"
+      "Skill(repair-scraper)",
+      "WebFetch(domain:github.com)",
+      "WebSearch"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -25,7 +25,7 @@ Only proceed here if Phase 1 passed cleanly.
 Using the scraper list from Phase 1, summarise:
 - Total scrapers
 - How many are healthy / degraded / failing / pending
-- How many have autorepair enabled
+- How many have REPAIR steps in their repair_policy
 
 Call `list_repair_candidates` to get the candidates.
 

@@ -1,3 +1,4 @@
+config.json
 volumes/*data*
 */__pycache__/*
 containers/**/__pycache__

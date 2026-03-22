@@ -6,8 +6,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Playwright + browser
-RUN pip install --no-cache-dir playwright psycopg2-binary requests "mcp[cli]"
+RUN pip install --no-cache-dir playwright psycopg2-binary requests "mcp[cli]" claude-agent-sdk
 RUN playwright install --with-deps chromium
+
+ARG ANTHROPIC_API_KEY
+ENV ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+
+ARG MODEL_ALIASES='{}'
+ENV MODEL_ALIASES=${MODEL_ALIASES}
 
 WORKDIR /app
 

@@ -5,8 +5,8 @@ services:
     build: ./containers/fleet-conductor
     container_name: conductor
     environment:
-      REPAIR_CRON_SCHEDULE: "* * * * *"
-      MAX_CONCURRENT_REPAIRS: "1"
+      REPAIR_CRON_SCHEDULE: "${REPAIR_CRON_SCHEDULE:-* * * * *}"
+      MAX_CONCURRENT_REPAIRS: "${MAX_CONCURRENT_REPAIRS:-1}"
     volumes:
       # DinD: access the host Docker daemon to manage scraper containers
       - /var/run/docker.sock:/var/run/docker.sock
@@ -80,7 +80,11 @@ services:
     profiles: ["build-only"]
 
   dev-agent:
-    build: ./containers/dev-agent
+    build:
+      context: ./containers/dev-agent
+      args:
+        ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+        MODEL_ALIASES: "${MODEL_ALIASES}"
     image: conscious-feed/dev-agent
     profiles: ["build-only"]
 

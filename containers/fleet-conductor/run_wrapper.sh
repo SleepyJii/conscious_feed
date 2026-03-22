@@ -16,6 +16,13 @@ emit_event() {
         -d "$1" >/dev/null 2>&1 || true
 }
 
+# Check current policy action — only run on RETRY
+POLICY_ACTION=$(curl -sf "http://localhost:8000/scrapers/${SCRAPER_ID}" | jq -r '.current_policy_action // "RETRY"' 2>/dev/null)
+if [ "$POLICY_ACTION" != "RETRY" ]; then
+    emit_event "{\"source\":\"conductor\",\"event_type\":\"scraper_skipped\",\"container_id\":\"${SCRAPER_ID}\",\"event_payload\":{\"reason\":\"policy_action_${POLICY_ACTION}\"}}"
+    exit 0
+fi
+
 STARTED_AT=$(date -u +"%Y-%m-%d %H:%M:%S+00")
 
 emit_event "{\"source\":\"conductor\",\"event_type\":\"scraper_launched\",\"container_id\":\"${SCRAPER_ID}\",\"event_payload\":{\"trigger\":\"cron\"}}"

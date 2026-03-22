@@ -109,7 +109,7 @@ def get_scraper(scraper_id: str) -> dict:
 
 @mcp.tool()
 def list_repair_candidates() -> dict:
-    """List scrapers with autorepair=True that are currently failing."""
+    """List scrapers whose current repair_policy step is a REPAIR action."""
     return _conductor("GET", "/scrapers/repair-candidates")
 
 
@@ -129,7 +129,8 @@ def add_scraper(
     scraping_prompt: str,
     name: str = "",
     cron_schedule: str = "",
-    autorepair: bool = False,
+    repair_policy: list[str] | None = None,
+    agent_notes: str = "SCRAPER NOT YET IMPLEMENTED",
 ) -> dict:
     """Deploy a new scraper to the fleet.
 
@@ -138,14 +139,16 @@ def add_scraper(
         scraping_prompt: Natural-language description of what to scrape
         name: Human-readable name (defaults to generated ID)
         cron_schedule: Cron expression, e.g. '*/30 * * * *'
-        autorepair: Auto-trigger repair on failure
+        repair_policy: Ordered steps on consecutive failures: RETRY, STALL, REPAIR:<model>
+        agent_notes: Short notes from repair agents about implementation details
     """
     return _conductor("POST", "/scrapers", {
         "name": name,
         "target_url": target_url,
         "scraping_prompt": scraping_prompt,
         "cron_schedule": cron_schedule,
-        "autorepair": autorepair,
+        "repair_policy": repair_policy or ["RETRY"],
+        "agent_notes": agent_notes,
     })
 
 
@@ -156,7 +159,8 @@ def edit_scraper(
     target_url: str | None = None,
     scraping_prompt: str | None = None,
     cron_schedule: str | None = None,
-    autorepair: bool | None = None,
+    repair_policy: list[str] | None = None,
+    agent_notes: str | None = None,
 ) -> dict:
     """Edit a scraper's config. Only provided fields are updated.
 
@@ -166,7 +170,8 @@ def edit_scraper(
         target_url: URL to scrape
         scraping_prompt: What to extract
         cron_schedule: Cron expression
-        autorepair: Auto-trigger repair on failure
+        repair_policy: Ordered steps on consecutive failures: RETRY, STALL, REPAIR:<model>
+        agent_notes: Short notes from repair agents about implementation details
     """
     body = {}
     if name is not None:
@@ -177,8 +182,10 @@ def edit_scraper(
         body["scraping_prompt"] = scraping_prompt
     if cron_schedule is not None:
         body["cron_schedule"] = cron_schedule
-    if autorepair is not None:
-        body["autorepair"] = autorepair
+    if repair_policy is not None:
+        body["repair_policy"] = repair_policy
+    if agent_notes is not None:
+        body["agent_notes"] = agent_notes
     return _conductor("PATCH", f"/scrapers/{scraper_id}", body)
 
 
@@ -310,6 +317,19 @@ async def write_scraper_script(scraper_id: str, content: str) -> str:
         content: The full Python script content
     """
     result = await _call_dev_agent(scraper_id, "write_scraper_script", {"content": content})
+    return result if isinstance(result, str) else json.dumps(result)
+
+
+@mcp.tool()
+async def update_agent_notes(scraper_id: str, notes: str) -> str:
+    """Update the agent_notes for a scraper via its active repair container.
+    Requires an active repair container for this scraper.
+
+    Args:
+        scraper_id: e.g. 'scraper-001'
+        notes: Short paragraph about implementation details or past issues
+    """
+    result = await _call_dev_agent(scraper_id, "update_agent_notes", {"notes": notes})
     return result if isinstance(result, str) else json.dumps(result)
 
 

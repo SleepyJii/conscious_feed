@@ -20,9 +20,23 @@ if [ "${SOCKPUPPET:-}" = "1" ]; then
     exec python3 /app/mcp_server.py
 fi
 
-# Run the repair script
+# Start MCP server in background so repair.py can use its tools
+python3 /app/mcp_server.py &
+MCP_PID=$!
+
+# Wait for MCP server to be ready
+for i in $(seq 1 30); do
+    if curl -sf http://localhost:8080/mcp -o /dev/null 2>/dev/null; then
+        break
+    fi
+    sleep 0.5
+done
+
+# Run the repair agent
 python3 /app/repair.py
 EXIT_CODE=$?
+
+kill $MCP_PID 2>/dev/null || true
 
 emit_event "{\"source\":\"dev-agent\",\"event_type\":\"repair_completed\",\"container_id\":\"${SCRAPER_ID}\",\"event_payload\":{\"exit_code\":${EXIT_CODE}}}"
 

@@ -6,34 +6,71 @@ AI-hybridized RSS bridge for the self-hosting era. Users define what data they w
 
 ```
 conscious_feed/
-├── docker-compose.yml          # Root compose: conductor, db, shared network/volumes
-├── fleet-conductor/            # Orchestration container (DinD + FastAPI)
-│   ├── api.py                  # FastAPI server: add/edit/remove scrapers
-│   ├── scraper_spec.py         # ScraperSpec + ScraperMonitoringSpec dataclasses
-│   ├── cron.py                 # Builds/installs crontab from scraper schedules
-│   ├── Dockerfile              # Python 3.11 + Docker CLI + Compose + cron
-│   ├── entrypoint.sh           # Starts crond, then uvicorn
-│   └── requirements.txt        # fastapi, uvicorn, pyyaml
-├── hybrid-scraper/             # The scraper container image
-│   ├── Dockerfile              # Python 3.11 + Node + Playwright + jq + psql
-│   ├── entrypoint.sh           # Fleet-mode symlink, browser server, WS_ENDPOINT export, pipe to ingest.sh
-│   ├── ingest.sh               # Reads JSONL from stdin, enriches, inserts into PostgreSQL
-│   ├── scrape.py               # Original standalone scraper (hardcoded URL, legacy)
-│   ├── playwright-server/      # Persistent Node.js browser server (survives script crashes)
-│   └── sys_admin_controller/   # CLI cron manager (early prototype, may be superseded by fleet-conductor)
-├── db-init/
-│   └── 001-schema.sql          # PostgreSQL schema: scrape_results table
-└── conscious-feed-pitch.html   # Pitch deck describing the vision
+├── docker-compose.yml              # Root compose: all services + build-only images
+├── config.json                     # Local secrets (gitignored, copy from config.example.json)
+├── config.example.json             # Template for config.json
+├── .mcp.json                       # MCP server config for Claude Code
+├── .claude/
+│   ├── settings.local.json         # Claude Code permissions (auto-approve MCP tools)
+│   └── skills/
+│       ├── conscious-feed/         # Master health check + repair loop
+│       ├── repair-scraper/         # Single scraper repair via MCP tools
+│       └── check-repair-candidates/# Fleet health overview
+├── containers/
+│   ├── fleet-conductor/            # Orchestration (FastAPI + Docker socket + cron)
+│   │   ├── server.py               # API endpoints
+│   │   ├── scraper_spec.py         # ScraperSpec dataclass
+│   │   ├── fleet.py                # ID generation, stub scripts, cron sync
+│   │   ├── state_helpers/          # Compose YAML + crontab management
+│   │   ├── api_helpers/            # Monitoring queries + event emission
+│   │   ├── run_wrapper.sh          # Cron wrapper: runs scraper, records result
+│   │   └── launch-repairs.sh       # Cron wrapper: triggers repairs for failing scrapers
+│   ├── hybrid-scraper/             # Scraper container image
+│   │   ├── entrypoint.sh           # Starts browser server, runs scrape.py | ingest.sh
+│   │   ├── ingest.sh               # JSONL stdin → PostgreSQL
+│   │   └── playwright-server/      # Node.js browser server (persists across script crashes)
+│   ├── dev-agent/                  # AI repair agent container
+│   │   ├── mcp_server.py           # FastMCP server (browser tools, script R/W, test)
+│   │   ├── repair.py               # Autonomous repair via Claude Agent SDK
+│   │   ├── entrypoint.sh           # Sockpuppet=MCP server, else=repair.py
+│   │   └── MCP_SPEC.md             # Tool spec + scraper contract documentation
+│   ├── mcp-proxy/                  # Persistent MCP gateway for Claude Code
+│   │   └── mcp_proxy.py            # Forwards tool calls to conductor/db-restful/dev-agents
+│   ├── db-restful/                 # REST API over PostgreSQL (events, content)
+│   └── scraper-ui/                 # React frontend
+├── volumes/
+│   ├── fleet-data/                 # Bind-mounted: per-scraper dirs, fleet compose
+│   ├── db-init/                    # SQL schema files
+│   └── postgres_data/              # PostgreSQL data
+└── scripts/
+    ├── build.sh                    # Build all images (sources config for API key)
+    ├── launch.sh                   # Source config + docker compose up
+    ├── relaunch.sh                 # Down + build + up
+    ├── load_config.sh              # Export config.json keys as env vars
+    └── wipeclean-data.sh           # Reset volumes
 ```
 
 ## Architecture
 
-### Orchestration Flow
-1. **Root compose** brings up `conductor` (FastAPI on :8000) and `db` (PostgreSQL on :5432) on the `conscious-feed` named network.
-2. The conductor has the Docker socket mounted — it manages scraper containers by generating an internal compose file at `/app/fleet/docker-compose.yml`.
-3. API calls to the conductor (`POST/PATCH/DELETE /scrapers`) create/modify ScraperSpec entries, which translate to compose service definitions.
-4. Each scraper container mounts `fleet-shared` volume. On creation, the conductor writes a stub `scraper.py` to `/fleet-shared/<scraper_id>/`.
-5. Scraper entrypoint symlinks `/app/scrape.py` → `/fleet-shared/<scraper_id>/scraper.py` when in fleet mode.
+### Services (root compose)
+
+| Service | Container | Port | Purpose |
+|---------|-----------|------|---------|
+| conductor | conductor | internal | Fleet orchestration API, cron, Docker socket |
+| db | postgres_db | internal | PostgreSQL 16 |
+| db-restful | restful_db | internal | REST API for events + scraped content |
+| scraper-ui | scraper_ui | **5173** | React frontend |
+| mcp-proxy | mcp_proxy | **9200** | MCP gateway for Claude Code |
+| hybrid-scraper | (build-only) | — | Scraper container image |
+| dev-agent | (build-only) | — | Repair agent image |
+
+### Exposed Ports
+
+Only two ports are exposed to the host:
+- **9200** — MCP proxy. Single interface for Claude Code.
+- **5173** — Scraper UI.
+
+All other services communicate internally on the `conscious-feed` Docker network. **Do not add host port mappings for internal services.**
 
 ### Data Flow (scraper → database)
 ```
@@ -43,39 +80,36 @@ entrypoint.sh → starts browser server → exports WS_ENDPOINT
                     │ JSONL to stdout     │ enriches with metadata
                     └────────────────────│ psql INSERT → db:5432
 ```
-- **scrape.py** is maximally naive: reads `WS_ENDPOINT` and `TARGET_URL` from env, uses Playwright, outputs `{"url", "title", "content"}` JSON lines to stdout. No database awareness.
-- **ingest.sh** handles all infra: enriches JSON with scraper_id/name/timestamp, inserts into `scrape_results` via `psql`.
+
+### Fleet Compose (dynamic)
+
+The conductor manages a separate compose file at `/fleet-data/docker-compose.yml` under project name `fleet`. All dynamically launched containers (scrapers, debug instances, repair agents) are services in this file. Clean up with `docker compose -p fleet down`.
+
+### Repair Pipeline
+
+1. **Cron loop** (`launch-repairs.sh`): every N minutes, finds failing scrapers with `autorepair=True`, calls `/repair` endpoint
+2. **Repair endpoint**: launches a debug scraper (live browser) + dev-agent (MCP server or autonomous repair)
+3. **Sockpuppet mode** (`SOCKPUPPET=1`): dev-agent runs MCP server on :8080, Claude Code connects via mcp-proxy to diagnose interactively
+4. **Autonomous mode**: dev-agent runs `repair.py` using Claude Agent SDK, connects to its own MCP server, fixes the script, exits
 
 ### Key Design Decisions
-- **ScraperSpec** (`scraper_spec.py`): user-facing dataclass with `scraper_id` (auto-generated, never user-supplied, incremental `scraper-001`, `scraper-002`...), `name`, `target_url`, `scraping_prompt`, `cron_schedule`. Translates to/from compose service definitions.
-- **ScraperMonitoringSpec**: separate dataclass for live data (`health`, `last_run`, `total_runs`), optional field on ScraperSpec. Keeps static config separate from runtime state.
-- **scraper_id is permanent**: fleet-shared directories are never deleted on scraper removal, since IDs are unique identifiers that should never be reused.
-- **Shared named network** (`conscious-feed`): all containers (conductor, db, scrapers) share it. The fleet compose declares it as `external: true`.
-- **Shared named volume** (`fleet-shared`): mounted in conductor and all scrapers. Conductor writes per-scraper scripts, scrapers read them.
-- **Cron scheduling**: conductor's crond runs `docker compose run --rm <scraper_id>` on each scraper's `cron_schedule`. Rebuilt on every add/edit/remove.
-
-### Database
-- PostgreSQL 16 (Alpine), hostname `db` on the shared network.
-- Single table `scrape_results`: id, scraper_id, scraper_name, target_url, page_url, title, content, raw_json (JSONB), scraped_at, created_at.
-- DB credentials hardcoded for internal Docker network: `conscious_feed`/`conscious_feed`/`conscious_feed`.
-
-## Exposed Ports
-
-Only two ports are exposed to the host:
-- **9200** — MCP proxy (`mcp_proxy`). This is the single interface for Claude Code to interact with the system.
-- **5173** — Scraper UI (`scraper_ui`).
-
-All other services (conductor, db, db-restful) communicate internally on the `conscious-feed` Docker network. **Do not add host port mappings for internal services.**
+- **ScraperSpec**: `scraper_id` is auto-generated, permanent, never reused. Fields: name, target_url, scraping_prompt, cron_schedule, autorepair.
+- **Stub scripts**: new scrapers get a `NotImplementedError` stub — repair agents implement them from scratch using the `scraping_prompt`.
+- **ANTHROPIC_API_KEY**: baked into the dev-agent image at build time via build arg (sourced from `config.json`). Conductor never touches it.
+- **MCP proxy pattern**: always-running proxy so Claude Code sees tools on startup. Forwards to transient dev-agent containers by Docker hostname (`repair-{scraper_id}:8080`).
 
 ## MCP Proxy (`mcp_proxy`, port 9200)
 
-The MCP proxy is a persistent FastMCP server that acts as the single gateway for Claude Code. It exposes tools covering all conductor and db-restful endpoints, plus forwarding to active dev-agent repair containers. Claude Code should use MCP tools exclusively — no curl to internal services.
+The MCP proxy is the single gateway for Claude Code. It exposes tools for:
+- **Conductor API**: scraper CRUD, run/stop/debug/repair, monitoring
+- **DB-Restful API**: scraped content, event log
+- **Dev-agent forwarding**: browser tools, script R/W, test execution
 
-Configured in `.mcp.json` and auto-approved via `.claude/settings.local.json`.
+Configured in `.mcp.json` and auto-approved via `.claude/settings.local.json` (`mcp__conscious-feed-tools__*`).
 
 ### Debugging without host ports
 
-If you need to manually curl an internal API for debugging, exec into the `mcp_proxy` container (it has `curl` installed and is on the `conscious-feed` network):
+Exec into the `mcp_proxy` container (it has `curl` and is on the `conscious-feed` network):
 
 ```bash
 docker exec mcp_proxy curl -s http://conductor:8000/scrapers
@@ -85,37 +119,36 @@ docker exec mcp_proxy curl -s http://restful_db:5000/rss_content
 ## API (fleet-conductor, internal only)
 
 - `GET /health`
-- `GET /scrapers` — list all scrapers with monitoring and container state
+- `GET /scrapers` — list all with monitoring + container state
 - `GET /scrapers/{scraper_id}` — single scraper detail
-- `POST /scrapers` — body: `{name?, target_url, scraping_prompt, cron_schedule?, autorepair?}`
-- `PATCH /scrapers/{scraper_id}` — body: `{name?, target_url?, scraping_prompt?, cron_schedule?, autorepair?}`
-- `DELETE /scrapers/{scraper_id}`
-- `POST /scrapers/{scraper_id}/run` — manual trigger
-- `POST /scrapers/{scraper_id}/launch_debug` — debug mode with live browser
-- `POST /scrapers/{scraper_id}/stop` — stop and clean up
-- `POST /scrapers/{scraper_id}/repair` — body: `{lazy?, sockpuppet?}` — launch dev-agent repair
-- `GET /scrapers/repair-candidates` — failing scrapers with autorepair enabled
+- `GET /scrapers/repair-candidates` — failing scrapers with autorepair
 - `GET /repair-containers` — active repair containers
+- `POST /scrapers` — body: `{name?, target_url, scraping_prompt, cron_schedule?, autorepair?}`
+- `PATCH /scrapers/{scraper_id}` — partial update
+- `DELETE /scrapers/{scraper_id}` — stop and remove
+- `POST /scrapers/{scraper_id}/run` — manual trigger (via run_wrapper.sh)
+- `POST /scrapers/{scraper_id}/launch_debug` — debug mode with live browser
+- `POST /scrapers/{scraper_id}/stop` — stop + clean up debug/repair containers
+- `POST /scrapers/{scraper_id}/repair` — body: `{lazy?, sockpuppet?}`
 - `POST /batch-update` — bulk scraper upsert
+
+## Database
+
+- PostgreSQL 16, hostname `db` on the shared network.
+- `scrape_results`: id, scraper_id, scraper_name, target_url, page_url, title, content, raw_json (JSONB), scraped_at, created_at
+- `scraper_runs`: id, scraper_id, started_at, finished_at, exit_code, stderr_tail, rows_inserted
+- DB credentials: `conscious_feed`/`conscious_feed`/`scrape_db` (internal Docker network only)
 
 ## Status / What's Next
 
-### Current State (rough assembly)
-- The pipeline is structurally complete but untested end-to-end in containers.
-- `scraping_prompt` is passed as an env var but not yet consumed by anything — this is where AI-generated scraper logic will plug in.
-- `sys_admin_controller/` in hybrid-scraper is an early prototype that predates fleet-conductor and may be removed.
-- **hybrid-scraper** is closest to workable — minimalist enough that there's not much to go wrong. Will get harder as we validate the sysadmin loop and add more optionalities for agents to interact.
-- **fleet-conductor** needs a serious refactor. The logic is sound but the code quality is at saturation for velocity — human needs to go back and direct sanitisation before building further on top of it.
+### Current State
+- Main scraping loop works end-to-end: conductor → cron → hybrid-scraper → ingest → PostgreSQL
+- Repair pipeline structurally complete: cron detection → debug launch → dev-agent MCP server → sockpuppet repair via Claude Code skills
+- Autonomous repair (`repair.py` via Claude Agent SDK) implemented but blocked on cost controls — needs repair budget/throttling before enabling
+- MCP proxy operational: all conductor + db-restful endpoints exposed as tools, dev-agent forwarding works
+- UI functional with scraper config + feed view
 
-### Milestone 1: Main Loop (next priority)
-Get 1-2 example scraper scripts for testing. Launching orchestrator + database should be sufficient for RSS-like JSON artifacts from those websites to slowly plumb their way into the database. At that point we have a real main loop to iterate on.
-
-### Milestone 2: AI Agent Development
-- Start by exposing pipes or other entrypoints for a human-guided Claude to debug or implement scripts — verify that the tools and scaffolding placed to make that easier actually work well.
-- OpenCode agents are the real goal but need careful rollout due to costs. Needs thought on how they should puppet a hybrid scraper.
-- Likely want an orchestrator API endpoint where agents can request a 'debug' run of a broken scraper, so they can look inside and experiment using the Playwright server from the exact moment that the script fails.
-
-### Milestone 3: UI
-- **RSS content display**: should be straightforward — render scraped content from the database in a clean feed view.
-- **Config section**: glorified spreadsheet (website name, URL, prompt) with an update button to send API requests to orchestrator or agents. Not complex.
-- **Fleet visualisation**: hardest and coolest part — a live view of the scraping/AI-dev fleet, showing container states, agent activity, failure recovery in real time.
+### Next Steps
+- Schema changes to support more sophisticated repair strategies and cost tracking
+- Repair budget/throttling to prevent runaway API costs from autonomous agents
+- Fleet visualisation in UI: live container states, agent activity, repair history

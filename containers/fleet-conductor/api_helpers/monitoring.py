@@ -73,6 +73,7 @@ def get_monitoring(scraper_id: str) -> ScraperMonitoringSpec:
         health=health,
         last_run=last_run,
         total_runs=total_runs,
+        consecutive_failures=consecutive_failures,
     )
 
 
@@ -139,6 +140,7 @@ def get_monitoring_bulk(scraper_ids: list[str]) -> dict[str, ScraperMonitoringSp
             health=health,
             last_run=stats[sid]["last_run"],
             total_runs=stats[sid]["total"],
+            consecutive_failures=consecutive_failures,
         )
 
     return result

@@ -20,6 +20,7 @@ TARGET_URL = os.environ.get("TARGET_URL", "")
 SCRAPING_PROMPT = os.environ.get("SCRAPING_PROMPT", "")
 SCRAPER_DIR = os.environ.get("SCRAPER_DIR", "")
 WS_ENDPOINT = os.environ.get("WS_ENDPOINT", "")
+AGENT_NOTES = os.environ.get("AGENT_NOTES", "")
 
 
 @mcp.tool()
@@ -31,6 +32,7 @@ def get_scraper_info() -> dict:
         "scraping_prompt": SCRAPING_PROMPT,
         "scraper_dir": SCRAPER_DIR,
         "ws_endpoint": WS_ENDPOINT,
+        "agent_notes": AGENT_NOTES,
     }
 
     error_file = Path(SCRAPER_DIR) / "last_error.txt"
@@ -188,6 +190,33 @@ async def test_scraper_script() -> dict:
             return {"error": "Script timed out after 60s", "exit_code": 1}
 
     return await asyncio.to_thread(_run)
+
+
+@mcp.tool()
+def update_agent_notes(notes: str) -> str:
+    """Update the agent_notes field for this scraper on the conductor.
+
+    Use this to leave short notes (a few sentences max) about implementation
+    details, past issues, or why the script works the way it does. These notes
+    persist across repair sessions so future agents have context.
+
+    Args:
+        notes: Short paragraph of notes about the scraper implementation
+    """
+    import urllib.request
+    import urllib.error
+
+    url = f"http://conductor:8000/scrapers/{SCRAPER_ID}"
+    data = json.dumps({"agent_notes": notes}).encode()
+    req = urllib.request.Request(url, data=data, method="PATCH")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return f"Updated agent_notes for {SCRAPER_ID}"
+    except urllib.error.HTTPError as e:
+        return f"Failed to update notes: HTTP {e.code}"
+    except urllib.error.URLError as e:
+        return f"Failed to reach conductor: {e.reason}"
 
 
 if __name__ == "__main__":

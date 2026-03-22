@@ -12,6 +12,6 @@ Check the ConsciousFeed fleet health using MCP tools.
 
 Present a concise summary:
 - Which scrapers are healthy, degraded, or failing
-- Which have autorepair enabled
-- Which are repair candidates (failing + autorepair)
+- Which have REPAIR steps in their repair_policy
+- Which are repair candidates (current policy action is REPAIR:<model>)
 - Whether any repair jobs are currently running
