@@ -1,4 +1,4 @@
 config.json
-volumes/*data*
+volumes/postgres_data/*
 */__pycache__/*
 containers/**/__pycache__
