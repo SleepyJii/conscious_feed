@@ -15,10 +15,13 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion"
 import { buttonStyles } from "@/lib/global-styles"
-import { Plus, Code, LayoutList, Trash2 } from "lucide-react"
+import { Plus, Code, LayoutList, Trash2, FileCode } from "lucide-react"
 import {
   addNewScraper,
   fetchScraperData,
+  fetchScraperScript,
+  updateScraperScript,
+  resetScraperScript,
   postScraperConfig,
   type ScraperConfigUpdate,
 } from "@/lib/utils"
@@ -92,6 +95,107 @@ function FormField({ label, value, onChange, multiline, placeholder }: {
   )
 }
 
+function ScriptEditor({ scraperId, onClose }: { scraperId: string; onClose: () => void }) {
+  const [script, setScript] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [statusMsg, setStatusMsg] = useState("")
+  const [wipeConfirmOpen, setWipeConfirmOpen] = useState(false)
+
+  useEffect(() => {
+    fetchScraperScript(scraperId)
+      .then((s) => { setScript(s); setLoading(false) })
+      .catch((e) => { setStatusMsg(e.message); setLoading(false) })
+  }, [scraperId])
+
+  async function handleUpdate() {
+    try {
+      await updateScraperScript(scraperId, script)
+      setStatusMsg("Script updated.")
+      setTimeout(() => setStatusMsg(""), 3000)
+    } catch (e) {
+      setStatusMsg(e instanceof Error ? e.message : "Update failed")
+    }
+  }
+
+  async function handleWipe() {
+    try {
+      await resetScraperScript(scraperId)
+      // Also clear agent_notes via PATCH
+      await fetch(`/conductor-api/scrapers/${scraperId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_notes: "SCRAPER NOT YET IMPLEMENTED" }),
+      })
+      const freshScript = await fetchScraperScript(scraperId)
+      setScript(freshScript)
+      setWipeConfirmOpen(false)
+      setStatusMsg("Script and agent notes wiped.")
+      setTimeout(() => setStatusMsg(""), 3000)
+    } catch (e) {
+      setStatusMsg(e instanceof Error ? e.message : "Wipe failed")
+    }
+  }
+
+  return (
+    <AlertDialog open onOpenChange={(v) => { if (!v) onClose() }}>
+      <AlertDialogContent size="lg" className="flex max-h-[85vh] flex-col">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Script — {scraperId}</AlertDialogTitle>
+          <AlertDialogDescription>View and edit the scraper's Python script.</AlertDialogDescription>
+        </AlertDialogHeader>
+
+        {loading ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">Loading...</p>
+        ) : (
+          <Textarea
+            className="min-h-[350px] flex-1 font-mono text-xs leading-relaxed"
+            value={script}
+            onChange={(e) => setScript(e.target.value)}
+          />
+        )}
+
+        {statusMsg && (
+          <p className="text-xs text-muted-foreground">{statusMsg}</p>
+        )}
+
+        <div className="flex justify-between">
+          <div className="flex gap-2">
+            <Button className={buttonStyles} onClick={handleUpdate}>UPDATE</Button>
+            <button
+              onClick={() => setWipeConfirmOpen(true)}
+              className="rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground hover:bg-destructive/90"
+            >
+              WIPE
+            </button>
+          </div>
+          <Button variant="outline" className={buttonStyles} onClick={onClose}>Close</Button>
+        </div>
+
+        <AlertDialog open={wipeConfirmOpen} onOpenChange={setWipeConfirmOpen}>
+          <AlertDialogContent size="sm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Wipe Script?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will clear the current script and agent notes entirely.
+                Repair agents will need to rebuild the script from scratch using the scraping prompt.
+              </AlertDialogDescription>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" className={buttonStyles} onClick={() => setWipeConfirmOpen(false)}>Cancel</Button>
+                <button
+                  onClick={handleWipe}
+                  className="rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Wipe Everything
+                </button>
+              </div>
+            </AlertDialogHeader>
+          </AlertDialogContent>
+        </AlertDialog>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
 export function ConfigModal({ open, onOpenChange }: ConfigModalProps) {
   const [mode, setMode] = useState<"gui" | "json">("gui")
   const [forms, setForms] = useState<ScraperForm[]>([])
@@ -99,6 +203,7 @@ export function ConfigModal({ open, onOpenChange }: ConfigModalProps) {
   const [status, setStatus] = useState("")
   const [statusTitle, setStatusTitle] = useState("")
   const [statusOpen, setStatusOpen] = useState(false)
+  const [scriptEditorId, setScriptEditorId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -126,7 +231,19 @@ export function ConfigModal({ open, onOpenChange }: ConfigModalProps) {
     setForms((prev) => prev.map((f, i) => i === index ? { ...f, [field]: value } : f))
   }
 
-  function removeForm(index: number) {
+  async function removeForm(index: number) {
+    const form = forms[index]
+    if (form.scraper_id && !form.isNew) {
+      try {
+        const response = await fetch(`/conductor-api/scrapers/${form.scraper_id}`, { method: "DELETE" })
+        if (!response.ok) throw new Error(`Delete failed (${response.status})`)
+      } catch (e) {
+        setStatusTitle("Error")
+        setStatus(e instanceof Error ? e.message : "Failed to delete scraper")
+        setStatusOpen(true)
+        return
+      }
+    }
     setForms((prev) => prev.filter((_, i) => i !== index))
   }
 
@@ -236,6 +353,7 @@ export function ConfigModal({ open, onOpenChange }: ConfigModalProps) {
   }
 
   return (
+    <>
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent size="lg" className="flex max-h-[85vh] flex-col">
         <AlertDialogHeader>
@@ -279,7 +397,15 @@ export function ConfigModal({ open, onOpenChange }: ConfigModalProps) {
                       <FormField label="Cron Schedule" value={form.cron_schedule} onChange={(v) => updateForm(index, "cron_schedule", v)} placeholder="*/30 * * * *" />
                       <FormField label="Category" value={form.category} onChange={(v) => updateForm(index, "category", v)} placeholder="e.g. blogs, news, tech" />
                       <FormField label="Repair Policy (comma-separated)" value={form.repair_policy} onChange={(v) => updateForm(index, "repair_policy", v)} placeholder="RETRY, REPAIR:haiku, STALL" />
-                      <div className="flex justify-end pt-1">
+                      <div className="flex items-center justify-between pt-1">
+                        {form.scraper_id ? (
+                          <button
+                            onClick={() => setScriptEditorId(form.scraper_id)}
+                            className="flex items-center gap-1.5 rounded-md border border-primary/50 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/20"
+                          >
+                            <FileCode className="h-3.5 w-3.5" /> SCRIPT
+                          </button>
+                        ) : <div />}
                         <button
                           onClick={() => removeForm(index)}
                           className="flex items-center gap-1 text-xs text-destructive hover:underline"
@@ -332,5 +458,10 @@ export function ConfigModal({ open, onOpenChange }: ConfigModalProps) {
         </AlertDialog>
       </AlertDialogContent>
     </AlertDialog>
+
+    {scriptEditorId && (
+      <ScriptEditor scraperId={scriptEditorId} onClose={() => setScriptEditorId(null)} />
+    )}
+    </>
   )
 }

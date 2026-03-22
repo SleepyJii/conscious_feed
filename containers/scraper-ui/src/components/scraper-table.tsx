@@ -177,7 +177,13 @@ export function ScraperTable() {
             <TableRow key={scraper.rowId}>
               {scraperColumns.map((col) => (
                 <TableCell key={col.key} className={col.className}>
-                  {Array.isArray(scraper[col.key]) ? (scraper[col.key] as string[]).join(", ") : scraper[col.key]}
+                  {col.scrollable ? (
+                    <div className="max-h-[80px] overflow-y-auto whitespace-normal break-words text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      {Array.isArray(scraper[col.key]) ? (scraper[col.key] as string[]).join(", ") : scraper[col.key]}
+                    </div>
+                  ) : (
+                    Array.isArray(scraper[col.key]) ? (scraper[col.key] as string[]).join(", ") : scraper[col.key]
+                  )}
                 </TableCell>
               ))}
               <TableCell>

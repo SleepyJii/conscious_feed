@@ -1,4 +1,6 @@
 import json
+import yaml
+from xml.etree.ElementTree import Element, SubElement, tostring
 
 import psycopg2
 import psycopg2.extras
@@ -104,6 +106,149 @@ def rss_content():
     cursor.close()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
+
+# ---------------------------------------------------------------------------
+# RSS feed (XML)
+# ---------------------------------------------------------------------------
+
+def _rfc822(dt) -> str:
+    """Format a datetime as RFC 822 for RSS pubDate."""
+    if dt is None:
+        return ""
+    return dt.strftime("%a, %d %b %Y %H:%M:%S +0000")
+
+
+def _feed_query():
+    """Shared query logic for /rss and /json endpoints.
+
+    Reads source, category, search, limit from request.args.
+    Returns (rows, source, category) or raises 500.
+    """
+    conn = open_db_conn()
+    if conn is None:
+        return None, None, None
+
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    conditions = []
+    params = []
+
+    source = request.args.get("source")
+    if source:
+        conditions.append("scraper_id = %s")
+        params.append(source)
+
+    category = request.args.get("category")
+    if category:
+        conditions.append("category = %s")
+        params.append(category)
+
+    search = request.args.get("search")
+    if search:
+        conditions.append("(title ILIKE %s OR content ILIKE %s)")
+        params.extend([f"%{search}%", f"%{search}%"])
+
+    limit = request.args.get("limit", 50, type=int)
+
+    where = ""
+    if conditions:
+        where = "WHERE " + " AND ".join(conditions)
+
+    cursor.execute(
+        f"""SELECT scraper_id, scraper_name, category, target_url, page_url,
+                   title, content, published_at, scraped_at
+            FROM scrape_results
+            {where}
+            ORDER BY COALESCE(published_at, scraped_at) DESC
+            LIMIT %s""",
+        (*params, limit),
+    )
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return rows, source, category
+
+
+@app.route("/yaml", methods=["GET"])
+def yaml_feed():
+    """Return scraped content as YAML.
+
+    Query params: same as /rss — source, category, search, limit.
+    """
+    rows, source, category = _feed_query()
+    if rows is None:
+        return make_response("Database connection failed", 500)
+    resp = make_response(yaml.dump([dict(r) for r in rows], default_flow_style=False, allow_unicode=True))
+    resp.headers["Content-Type"] = "text/yaml; charset=utf-8"
+    return resp
+
+
+@app.route("/json", methods=["GET"])
+def json_feed():
+    """Return scraped content as a JSON feed.
+
+    Query params: same as /rss — source, category, search, limit.
+    """
+    rows, source, category = _feed_query()
+    if rows is None:
+        return make_response("Database connection failed", 500)
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/rss", methods=["GET"])
+def rss_feed():
+    """Return scraped content as an RSS 2.0 XML feed.
+
+    Query params: source, category, search, limit (default 50).
+    """
+    rows, source, category = _feed_query()
+    if rows is None:
+        return make_response("Database connection failed", 500)
+
+    # Build RSS 2.0 XML
+    rss = Element("rss", version="2.0")
+    channel = SubElement(rss, "channel")
+
+    # Build a readable title describing the query
+    search = request.args.get("search")
+    filters = []
+    if rows and source:
+        filters.append(rows[0].get("scraper_name") or source)
+    elif source:
+        filters.append(source)
+    if category:
+        filters.append(f"#{category}")
+    if search:
+        filters.append(f'"{search}"')
+
+    if filters:
+        title = f"Conscious Feed — {', '.join(filters)}"
+    else:
+        title = "Conscious Feed — All Items"
+    SubElement(channel, "title").text = title
+    SubElement(channel, "description").text = "AI-hybridized RSS bridge"
+    SubElement(channel, "link").text = f"/rss{('?' + request.query_string.decode()) if request.query_string else ''}"
+
+    for row in rows:
+        item = SubElement(channel, "item")
+        SubElement(item, "title").text = row["title"] or "Untitled"
+        SubElement(item, "link").text = row["page_url"] or row["target_url"] or ""
+        SubElement(item, "description").text = row["content"] or ""
+        SubElement(item, "source").text = row["scraper_name"] or row["scraper_id"]
+        if row.get("category"):
+            SubElement(item, "category").text = row["category"]
+        pub_date = row.get("published_at") or row.get("scraped_at")
+        if pub_date:
+            SubElement(item, "pubDate").text = _rfc822(pub_date)
+        SubElement(item, "guid", isPermaLink="false").text = (
+            f"{row['scraper_id']}:{row['page_url'] or ''}:{row['title'] or ''}"
+        )
+
+    xml_bytes = b'<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(rss, encoding="unicode").encode("utf-8")
+    resp = make_response(xml_bytes)
+    resp.headers["Content-Type"] = "application/rss+xml; charset=utf-8"
+    return resp
 
 
 # ---------------------------------------------------------------------------

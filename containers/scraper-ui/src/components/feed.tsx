@@ -49,7 +49,7 @@ export function Feed() {
   })
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="mx-auto max-w-[85rem]">
       <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b bg-background pb-4">
         <select
           className="rounded-md border bg-background px-3 py-1.5 text-sm"

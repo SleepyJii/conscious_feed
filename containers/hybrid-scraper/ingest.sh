@@ -2,6 +2,9 @@
 # ingest.sh — reads JSONL from stdin, enriches, and upserts into PostgreSQL.
 # Non-JSON lines are forwarded to stderr as log output.
 # Dedup: rows with matching (page_url, title, published_at) are updated, not duplicated.
+#
+# Uses a JSON-in-SQL approach: the entire enriched JSON is inserted as a jsonb
+# literal and fields are extracted in SQL, avoiding all shell escaping issues.
 
 set -eu
 
@@ -19,13 +22,13 @@ ROWS_FAILED=0
 
 while IFS= read -r line; do
     # Try to parse as JSON — skip non-JSON lines
-    if ! echo "$line" | jq -e . >/dev/null 2>&1; then
+    if ! printf '%s\n' "$line" | jq -e . >/dev/null 2>&1; then
         echo "[scraper-log] $line" >&2
         continue
     fi
 
-    # Enrich with metadata from environment
-    enriched=$(echo "$line" | jq -c \
+    # Enrich with metadata from environment (output is a single-line JSON string)
+    enriched=$(printf '%s\n' "$line" | jq -c \
         --arg sid "${SCRAPER_ID:-unknown}" \
         --arg sname "${SCRAPER_NAME:-}" \
         --arg turl "${TARGET_URL:-}" \
@@ -33,48 +36,34 @@ while IFS= read -r line; do
         --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         '. + {scraper_id: $sid, scraper_name: $sname, target_url: $turl, category: $scat, scraped_at: $ts}')
 
-    # Extract fields for SQL
-    s_id=$(echo "$enriched" | jq -r '.scraper_id')
-    s_name=$(echo "$enriched" | jq -r '.scraper_name')
-    s_cat=$(echo "$enriched" | jq -r '.category // ""')
-    t_url=$(echo "$enriched" | jq -r '.target_url')
-    page_url=$(echo "$enriched" | jq -r '.url // .target_url')
-    title=$(echo "$enriched" | jq -r '.title // ""')
-    content=$(echo "$enriched" | jq -r '.content // ""')
-    published_at=$(echo "$enriched" | jq -r '.published_at // empty')
-    scraped_at=$(echo "$enriched" | jq -r '.scraped_at')
-    raw_json="$enriched"
+    # Escape single quotes for SQL jsonb literal (the enriched JSON is always one line from jq -c)
+    escaped=$(printf '%s' "$enriched" | sed "s/'/''/g")
 
-    # Build published_at SQL value (NULL if not provided)
-    if [ -n "$published_at" ]; then
-        pub_sql="'$(echo "$published_at" | sed "s/'/''/g")'::timestamptz"
-    else
-        pub_sql="NULL"
-    fi
-
-    # Upsert: insert or update on (page_url, title, published_at) conflict
+    # Insert using jsonb field extraction — all text fields are extracted in SQL,
+    # so we never pass content through shell interpolation.
     if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -q -c \
-        "INSERT INTO scrape_results (scraper_id, scraper_name, category, target_url, page_url, title, content, published_at, raw_json, scraped_at)
-         VALUES (
-            '$(echo "$s_id" | sed "s/'/''/g")',
-            '$(echo "$s_name" | sed "s/'/''/g")',
-            '$(echo "$s_cat" | sed "s/'/''/g")',
-            '$(echo "$t_url" | sed "s/'/''/g")',
-            '$(echo "$page_url" | sed "s/'/''/g")',
-            '$(echo "$title" | sed "s/'/''/g")',
-            '$(echo "$content" | sed "s/'/''/g")',
-            $pub_sql,
-            '$(echo "$raw_json" | sed "s/'/''/g")'::jsonb,
-            '$scraped_at'::timestamptz
-         )
+        "WITH src AS (SELECT '${escaped}'::jsonb AS d)
+         INSERT INTO scrape_results (scraper_id, scraper_name, category, target_url, page_url, title, content, published_at, raw_json, scraped_at)
+         SELECT
+             d->>'scraper_id',
+             d->>'scraper_name',
+             COALESCE(d->>'category', ''),
+             d->>'target_url',
+             COALESCE(d->>'url', d->>'target_url'),
+             COALESCE(d->>'title', ''),
+             COALESCE(d->>'content', ''),
+             CASE WHEN d->>'published_at' IS NOT NULL AND d->>'published_at' != ''
+                  THEN (d->>'published_at')::timestamptz ELSE NULL END,
+             d,
+             (d->>'scraped_at')::timestamptz
+         FROM src
          ON CONFLICT (page_url, title, (COALESCE(published_at, '1970-01-01'::timestamptz)))
          DO UPDATE SET
-            content = EXCLUDED.content,
-            raw_json = EXCLUDED.raw_json,
-            scraped_at = EXCLUDED.scraped_at;" 2>&1; then
+             content = EXCLUDED.content,
+             raw_json = EXCLUDED.raw_json,
+             scraped_at = EXCLUDED.scraped_at;" 2>&1; then
         ROWS_OK=$((ROWS_OK + 1))
-        # Echo ingested line to stdout so callers can count rows
-        echo "$line"
+        printf '%s\n' "$line"
     else
         ROWS_FAILED=$((ROWS_FAILED + 1))
         echo "[ingest] ERROR inserting row" >&2

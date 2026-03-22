@@ -40,7 +40,14 @@ function AboutModal({ open, onOpenChange }: { open: boolean; onOpenChange: (v: b
 }
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("feed")
+  const [activeTab, setActiveTabState] = useState<Tab>(() => {
+    const hash = window.location.hash.replace("#", "")
+    return hash === "fleet" ? "fleet" : "feed"
+  })
+  function setActiveTab(tab: Tab) {
+    setActiveTabState(tab)
+    window.location.hash = tab
+  }
   const [configOpen, setConfigOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -113,7 +120,7 @@ export function App() {
       <main className="flex-1 overflow-y-auto p-6">
         {activeTab === "feed" && <Feed />}
         {activeTab === "fleet" && (
-          <div className="mx-auto flex min-h-full max-w-6xl flex-col gap-8">
+          <div className="mx-auto flex min-h-full max-w-[85rem] flex-col gap-8">
             <MonitoringCharts />
             <div className="flex-1">
               <ScraperTable />

@@ -83,6 +83,18 @@ Keep your fixes minimal and focused. Don't over-engineer.
 After completing a repair, always call update_agent_notes() with a brief summary
 of what you found, what you changed, and any quirks about the target site.
 This helps future repair agents understand context quickly.
+
+## Giving up
+
+If you determine the task is impossible or impractical (e.g. the site requires
+authentication, blocks all automation, the scraping prompt asks for data that
+doesn't exist on the page, or the site is too dynamic to scrape reliably),
+you should:
+1. Call update_agent_notes() explaining WHY you're giving up
+2. Write "GIVE_UP" as the first line of your final response
+
+Do NOT write a fake script that pretends to work. It's better to give up
+honestly so the repair policy can advance and a human can review your notes.
 """.format(scraper_dir=SCRAPER_DIR)
 
 REPAIR_PROMPT = f"""\
@@ -111,7 +123,8 @@ async def repair():
         **({"model": REPAIR_MODEL} if REPAIR_MODEL else {}),
     )
 
-    success = False
+    # Returns: 0 = success, 1 = failure, 2 = gave up
+    exit_code = 1
     try:
         async with asyncio.timeout(600):
             async for message in query(prompt=REPAIR_PROMPT, options=options):
@@ -120,24 +133,28 @@ async def repair():
                     failed = [s for s in mcp_servers if s.get("status") != "connected"]
                     if failed:
                         print(f"repair: MCP connection failed: {failed}", file=sys.stderr)
-                        return False
+                        return 1
 
                 if isinstance(message, ResultMessage):
-                    if message.subtype == "success":
+                    result_text = str(message.result) if message.result else ""
+                    if result_text.strip().startswith("GIVE_UP"):
+                        print(f"repair: agent gave up for {SCRAPER_ID}", file=sys.stderr)
+                        exit_code = 2
+                    elif message.subtype == "success":
                         print(f"repair: completed successfully for {SCRAPER_ID}")
-                        success = True
+                        exit_code = 0
                     else:
-                        print(f"repair: failed for {SCRAPER_ID}: {message.result}", file=sys.stderr)
-                        success = False
+                        print(f"repair: failed for {SCRAPER_ID}: {result_text}", file=sys.stderr)
+                        exit_code = 1
 
     except asyncio.TimeoutError:
         print(f"repair: timed out after 10 minutes for {SCRAPER_ID}", file=sys.stderr)
-        return False
+        return 1
     except Exception as e:
         print(f"repair: error for {SCRAPER_ID}: {e}", file=sys.stderr)
-        return False
+        return 1
 
-    return success
+    return exit_code
 
 
 async def main():
@@ -145,8 +162,8 @@ async def main():
     print(f"repair: target_url={TARGET_URL}")
     print(f"repair: scraping_prompt={SCRAPING_PROMPT}")
 
-    success = await repair()
-    sys.exit(0 if success else 1)
+    exit_code = await repair()
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

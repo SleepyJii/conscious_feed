@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir flask psycopg2-binary
+RUN pip install --no-cache-dir flask psycopg2-binary pyyaml
 
 COPY . .
 

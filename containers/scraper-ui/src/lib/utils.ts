@@ -14,6 +14,7 @@ export type ScraperRow = {
   cronSchedule: string
   repairPolicy: string[]
   category: string
+  agentNotes: string
   containerState: string
   monitoringHealth: string
   monitoringLastRun: string
@@ -24,20 +25,22 @@ type ColumnDefinition = {
   key: keyof ScraperRow
   header: string
   className?: string
+  scrollable?: boolean
 }
 
 export const scraperColumns: ColumnDefinition[] = [
-  { key: "scraperId", header: "Scraper ID", className: "whitespace-normal break-words" },
-  { key: "name", header: "Name", className: "whitespace-normal break-words" },
-  { key: "targetUrl", header: "Target URL", className: "whitespace-normal break-words" },
-  { key: "scrapingPrompt", header: "Scraping Prompt", className: "whitespace-normal break-words" },
-  { key: "cronSchedule", header: "Cron Schedule", className: "whitespace-normal break-words" },
-  { key: "repairPolicy", header: "Repair Policy", className: "whitespace-normal break-words" },
-  { key: "category", header: "Category", className: "whitespace-normal break-words" },
-  { key: "containerState", header: "Container State", className: "whitespace-normal break-words" },
-  { key: "monitoringHealth", header: "Health", className: "whitespace-normal break-words" },
-  { key: "monitoringLastRun", header: "Last Run", className: "whitespace-normal break-words" },
-  { key: "monitoringTotalRuns", header: "Total Runs", className: "whitespace-normal break-words" },
+  { key: "scraperId", header: "ID", className: "whitespace-nowrap" },
+  { key: "name", header: "Name", className: "whitespace-nowrap" },
+  { key: "targetUrl", header: "URL", className: "whitespace-nowrap max-w-[150px] truncate" },
+  { key: "scrapingPrompt", header: "Prompt", className: "max-w-[200px]", scrollable: true },
+  { key: "cronSchedule", header: "Cron", className: "whitespace-nowrap" },
+  { key: "repairPolicy", header: "Policy", className: "whitespace-nowrap" },
+  { key: "category", header: "Category", className: "whitespace-nowrap" },
+  { key: "agentNotes", header: "Agent Notes", className: "max-w-[200px]", scrollable: true },
+  { key: "containerState", header: "State", className: "whitespace-nowrap" },
+  { key: "monitoringHealth", header: "Health", className: "whitespace-nowrap" },
+  { key: "monitoringLastRun", header: "Last Run", className: "whitespace-nowrap" },
+  { key: "monitoringTotalRuns", header: "Runs", className: "whitespace-nowrap" },
 ]
 
 type RawMonitoring = {
@@ -54,6 +57,7 @@ type RawScraperRow = {
   cron_schedule?: string
   repair_policy?: string[]
   category?: string
+  agent_notes?: string
   container_state?: string
   monitoring?: RawMonitoring
 }
@@ -68,6 +72,7 @@ function toScraperRow(row: RawScraperRow, index: number): ScraperRow {
     cronSchedule: row.cron_schedule ?? "",
     repairPolicy: row.repair_policy ?? ["RETRY"],
     category: row.category ?? "",
+    agentNotes: row.agent_notes ?? "",
     containerState: row.container_state ?? "not running",
     monitoringHealth: row.monitoring?.health ?? "unknown",
     monitoringLastRun: row.monitoring?.last_run ?? "",
@@ -90,6 +95,27 @@ export async function fetchScraperData(): Promise<ScraperRow[]> {
     console.error("Failed to fetch scraper data: ", error);
     return []
   }
+}
+
+export async function fetchScraperScript(scraperId: string): Promise<string> {
+  const response = await fetch(`/conductor-api/scrapers/${scraperId}/script`)
+  if (!response.ok) throw new Error(`Failed to fetch script (${response.status})`)
+  const data = await response.json()
+  return data.script
+}
+
+export async function updateScraperScript(scraperId: string, script: string): Promise<void> {
+  const response = await fetch(`/conductor-api/scrapers/${scraperId}/script`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ script }),
+  })
+  if (!response.ok) throw new Error(`Failed to update script (${response.status})`)
+}
+
+export async function resetScraperScript(scraperId: string): Promise<void> {
+  const response = await fetch(`/conductor-api/scrapers/${scraperId}/script/reset`, { method: "POST" })
+  if (!response.ok) throw new Error(`Failed to reset script (${response.status})`)
 }
 
 export async function runScraper(scraperId: string): Promise<{ exit_code: number }> {
@@ -218,11 +244,11 @@ export async function fetchDashboardData(): Promise<DashboardData> {
         if (event.event_type === "scraper_created") scraperCount++
         if (event.event_type === "scraper_deleted") scraperCount = Math.max(0, scraperCount - 1)
         if (event.event_type === "scraper_launched" || event.event_type === "scraper_debug_launched") activeScrapers++
-        if (event.event_type === "scraper_run_completed" || event.event_type === "ingest_completed") {
+        if (event.event_type === "scraper_run_completed") {
           activeScrapers = Math.max(0, activeScrapers - 1)
         }
         if (event.event_type === "repair_launched") activeRepairs++
-        if (event.event_type === "repair_cleanup" || event.event_type === "repair_completed") {
+        if (event.event_type === "repair_cleanup") {
           activeRepairs = Math.max(0, activeRepairs - 1)
         }
 

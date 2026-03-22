@@ -59,3 +59,22 @@ A successful repair resets the failure counter back to the beginning.
 7. If the target site changes and the scraper breaks again, the policy handles it automatically
 
 For hands-on debugging, use the **Wrench** button in FleetControl with sockpuppet mode — this gives you an interactive MCP connection to the repair agent's browser and tools.
+
+## RSS Endpoint
+
+Conscious Feed serves a standard RSS 2.0 XML feed at `/rss`, compatible with any RSS reader (Feedly, Miniflux, Newsboat, etc).
+
+**Base URL:** `http://<host>:5173/rss`
+
+**Query parameters:**
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `source` | Filter by scraper ID | `?source=scraper-001` |
+| `category` | Filter by category label | `?category=blogs` |
+| `search` | Full-text search across titles and content | `?search=china` |
+| `limit` | Max items returned (default 50) | `?limit=25` |
+
+Parameters can be combined: `?category=finance&limit=10` or `?source=scraper-002&search=market`.
+
+This is what makes Conscious Feed an RSS bridge — point any feed reader at a filtered `/rss` URL and get a live, self-healing feed from any website, even those that don't offer RSS natively.

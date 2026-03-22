@@ -64,7 +64,7 @@ export function MonitoringCharts() {
 
   useEffect(() => {
     loadData()
-    const interval = setInterval(loadData, 60_000)
+    const interval = setInterval(loadData, 10_000)
     return () => clearInterval(interval)
   }, [loadData])
 
@@ -74,10 +74,10 @@ export function MonitoringCharts() {
   const timelineYMax = Math.ceil(maxTotal * 1.25)
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-      <div className="rounded-xl border p-6">
-        <h2 className="mb-4 text-sm font-medium">Scraper Health</h2>
-        <ChartContainer config={healthChartConfig} className="mx-auto max-h-[280px] w-full">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,5fr)_minmax(0,3fr)]">
+      <div className="rounded-xl border p-3">
+        <h2 className="mb-2 text-sm font-medium">Scraper Health</h2>
+        <ChartContainer config={healthChartConfig} className="!aspect-square max-h-[280px] w-full">
           <PieChart>
             <ChartTooltip content={<ChartTooltipContent hideLabel />} />
             <Pie data={chartData} dataKey="count" nameKey="bucket" innerRadius={60}>

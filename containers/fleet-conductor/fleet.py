@@ -33,20 +33,21 @@ if __name__ == "__main__":
 
 
 def next_scraper_id(services: dict) -> str:
-    """Generate the next incremental scraper ID (scraper-001, scraper-002, ...).
+    """Generate a unique random scraper ID (scraper-a1b2c3d4).
 
-    Checks both current compose services and fleet-data directories
-    so IDs are never reused, even after removal.
+    Uses 8 hex characters. Checks against existing services and
+    fleet-data directories to avoid collisions.
     """
-    max_n = 0
-    for key in services:
-        if key.startswith("scraper-") and key[8:].isdigit():
-            max_n = max(max_n, int(key[8:]))
+    import secrets
+
+    existing = set(services.keys())
     if FLEET_DATA.is_dir():
-        for entry in FLEET_DATA.iterdir():
-            if entry.is_dir() and entry.name.startswith("scraper-") and entry.name[8:].isdigit():
-                max_n = max(max_n, int(entry.name[8:]))
-    return f"scraper-{max_n + 1:03d}"
+        existing.update(e.name for e in FLEET_DATA.iterdir() if e.is_dir())
+
+    while True:
+        candidate = f"scraper-{secrets.token_hex(4)}"
+        if candidate not in existing:
+            return candidate
 
 
 def init_scraper_dir(scraper_id: str) -> None:

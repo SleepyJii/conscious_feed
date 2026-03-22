@@ -25,6 +25,18 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/conductor-api/, ""),
       },
+      "/rss": {
+        target: "http://db-restful:5000",
+        changeOrigin: true,
+      },
+      "/json": {
+        target: "http://db-restful:5000",
+        changeOrigin: true,
+      },
+      "/yaml": {
+        target: "http://db-restful:5000",
+        changeOrigin: true,
+      },
     },
   },
 })

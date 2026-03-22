@@ -80,6 +80,8 @@ def list_scrapers():
 
     results = []
     for name, svc in services.items():
+        if name.startswith("repair-"):
+            continue
         spec = ScraperSpec.from_compose_service(name, svc)
         spec.monitoring = mon.get(name)
         d = spec.to_dict()
@@ -228,6 +230,56 @@ def edit_scraper(scraper_id: str, body: ScraperEdit):
     api.emit("scraper_modified", container_id=scraper_id, payload=spec.user_params())
     log.info("Edited scraper %s", scraper_id)
     return spec.to_dict()
+
+
+@app.get("/scrapers/{scraper_id}/script")
+def get_scraper_script(scraper_id: str):
+    """Return the current scraper.py source code."""
+    data = state.load()
+    if scraper_id not in data.get("services", {}):
+        raise HTTPException(404, f"Scraper '{scraper_id}' not found")
+
+    script = FLEET_DATA / scraper_id / "scraper.py"
+    if not script.exists():
+        raise HTTPException(404, "No scraper.py found")
+
+    return {"scraper_id": scraper_id, "script": script.read_text()}
+
+
+class ScriptUpdate(BaseModel):
+    script: str = Field(description="Full Python script content")
+
+
+@app.put("/scrapers/{scraper_id}/script")
+def update_scraper_script(scraper_id: str, body: ScriptUpdate):
+    """Overwrite the scraper.py with new content."""
+    data = state.load()
+    if scraper_id not in data.get("services", {}):
+        raise HTTPException(404, f"Scraper '{scraper_id}' not found")
+
+    script = FLEET_DATA / scraper_id / "scraper.py"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(body.script)
+
+    api.emit("script_updated", container_id=scraper_id)
+    log.info("Script updated for %s (%d bytes)", scraper_id, len(body.script))
+    return {"scraper_id": scraper_id, "status": "updated", "bytes": len(body.script)}
+
+
+@app.post("/scrapers/{scraper_id}/script/reset")
+def reset_scraper_script(scraper_id: str):
+    """Overwrite the scraper.py with the default stub."""
+    data = state.load()
+    if scraper_id not in data.get("services", {}):
+        raise HTTPException(404, f"Scraper '{scraper_id}' not found")
+
+    script = FLEET_DATA / scraper_id / "scraper.py"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(fleet.STUB_SCRAPER)
+
+    api.emit("script_reset", container_id=scraper_id)
+    log.info("Script reset to stub for %s", scraper_id)
+    return {"scraper_id": scraper_id, "status": "reset to stub"}
 
 
 @app.post("/scrapers/{scraper_id}/run")
