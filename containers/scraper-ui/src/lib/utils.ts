@@ -12,7 +12,7 @@ export type ScraperRow = {
   targetUrl: string
   scrapingPrompt: string
   cronSchedule: string
-  autorepair: boolean
+  repairPolicy: string[]
   containerState: string
   monitoringHealth: string
   monitoringLastRun: string
@@ -31,7 +31,7 @@ export const scraperColumns: ColumnDefinition[] = [
   { key: "targetUrl", header: "Target URL", className: "whitespace-normal break-words" },
   { key: "scrapingPrompt", header: "Scraping Prompt", className: "whitespace-normal break-words" },
   { key: "cronSchedule", header: "Cron Schedule", className: "whitespace-normal break-words" },
-  { key: "autorepair", header: "Autorepair", className: "whitespace-normal break-words" },
+  { key: "repairPolicy", header: "Repair Policy", className: "whitespace-normal break-words" },
   { key: "containerState", header: "Container State", className: "whitespace-normal break-words" },
   { key: "monitoringHealth", header: "Health", className: "whitespace-normal break-words" },
   { key: "monitoringLastRun", header: "Last Run", className: "whitespace-normal break-words" },
@@ -50,7 +50,7 @@ type RawScraperRow = {
   target_url?: string
   scraping_prompt?: string
   cron_schedule?: string
-  autorepair?: boolean
+  repair_policy?: string[]
   container_state?: string
   monitoring?: RawMonitoring
 }
@@ -63,7 +63,7 @@ function toScraperRow(row: RawScraperRow, index: number): ScraperRow {
     targetUrl: row.target_url ?? "",
     scrapingPrompt: row.scraping_prompt ?? "",
     cronSchedule: row.cron_schedule ?? "",
-    autorepair: row.autorepair ?? false,
+    repairPolicy: row.repair_policy ?? ["RETRY"],
     containerState: row.container_state ?? "not running",
     monitoringHealth: row.monitoring?.health ?? "unknown",
     monitoringLastRun: row.monitoring?.last_run ?? "",
@@ -220,7 +220,7 @@ export type ScraperConfigUpdate = {
   target_url?: string
   scraping_prompt?: string
   cron_schedule?: string
-  autorepair?: boolean
+  repair_policy?: string[]
 }
 
 type BatchUpdateResponse = {
@@ -259,5 +259,62 @@ export async function postScraperConfig(
   }
 
   return (await response.json()) as BatchUpdateResponse
+}
+
+export type FeedItem = {
+  id: number
+  scraperId: string
+  scraperName: string
+  targetUrl: string
+  pageUrl: string
+  title: string
+  content: string
+  scrapedAt: string
+}
+
+type RawFeedItem = {
+  id?: number
+  scraper_id?: string
+  scraper_name?: string
+  target_url?: string
+  page_url?: string
+  title?: string
+  content?: string
+  scraped_at?: string
+}
+
+export async function fetchFeedItems(opts?: {
+  scraper_id?: string
+  limit?: number
+  offset?: number
+}): Promise<FeedItem[]> {
+  try {
+    const params = new URLSearchParams()
+    if (opts?.scraper_id) params.set("scraper_id", opts.scraper_id)
+    if (opts?.limit) params.set("limit", String(opts.limit))
+    if (opts?.offset) params.set("offset", String(opts.offset))
+
+    const qs = params.toString()
+    const response = await fetch(`/api/rss_content${qs ? `?${qs}` : ""}`)
+    if (!response.ok) {
+      throw new Error(`Request failed with ${response.status}`)
+    }
+    const data = (await response.json()) as RawFeedItem[]
+    if (!Array.isArray(data)) return []
+
+    return data.map((row) => ({
+      id: row.id ?? 0,
+      scraperId: row.scraper_id ?? "",
+      scraperName: row.scraper_name ?? "",
+      targetUrl: row.target_url ?? "",
+      pageUrl: row.page_url ?? "",
+      title: row.title ?? "",
+      content: row.content ?? "",
+      scrapedAt: row.scraped_at ? new Date(row.scraped_at).toLocaleString() : "",
+    }))
+  } catch (error) {
+    console.error("Failed to fetch feed items:", error)
+    return []
+  }
 }
 

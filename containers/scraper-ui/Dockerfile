@@ -14,8 +14,6 @@ COPY package.json package.json
 # Install dependencies
 RUN CI=true pnpm install
 
-RUN CI=true pnpm install react-router-dom
-
 COPY . .
 
 # Build the Vite + shadcn UI project
