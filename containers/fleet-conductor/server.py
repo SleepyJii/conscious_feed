@@ -436,20 +436,19 @@ def repair_scraper(scraper_id: str, body: RepairRequest = RepairRequest()):
     }
     state.save(data)
 
-    result = state.run("run", "-d", repair_service_name)
-
-    if result.returncode != 0:
-        log.error("Repair launch failed for %s: %s", scraper_id, result.stderr)
-        # Clean up the service definition
-        del services[repair_service_name]
-        state.save(data)
-        subprocess.run(["docker", "rm", "-f", debug_container_id], capture_output=True)
-        raise HTTPException(500, f"Repair launch failed: {result.stderr}")
-
-    container_id = result.stdout.strip()
-
-    # Wait for dev-agent MCP server readiness in sockpuppet mode
     if body.sockpuppet:
+        # Sockpuppet mode: launch detached, keep alive for interactive use
+        result = state.run("run", "-d", repair_service_name)
+
+        if result.returncode != 0:
+            log.error("Repair launch failed for %s: %s", scraper_id, result.stderr)
+            del services[repair_service_name]
+            state.save(data)
+            subprocess.run(["docker", "rm", "-f", debug_container_id], capture_output=True)
+            raise HTTPException(500, f"Repair launch failed: {result.stderr}")
+
+        container_id = result.stdout.strip()
+
         for _ in range(30):
             time.sleep(0.5)
             try:
@@ -458,23 +457,31 @@ def repair_scraper(scraper_id: str, body: RepairRequest = RepairRequest()):
                 break
             except (ConnectionRefusedError, OSError):
                 continue
+    else:
+        # Autonomous mode: launch via repair_wrapper.sh in background
+        # Wrapper runs the agent (blocking), then cleans up debug container
+        # and records failure in scraper_runs if the repair fails.
+        container_id = "pending"
+        subprocess.Popen(
+            ["/app/repair_wrapper.sh", str(FLEET_DATA / "docker-compose.yml"),
+             scraper_id, repair_service_name, debug_container_id],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
 
     api.emit("repair_launched", container_id=scraper_id, payload={
-        "docker_container_id": container_id,
         "debug_container_id": debug_container_id,
         "sockpuppet": body.sockpuppet,
         "lazy": body.lazy,
     })
 
     log.info("Repair launched for %s (sockpuppet=%s)", scraper_id, body.sockpuppet)
-    response = {
+    return {
         "scraper_id": scraper_id,
         "container_id": container_id,
         "debug_container_id": debug_container_id,
         "status": "repair launched",
         "sockpuppet": body.sockpuppet,
     }
-    return response
 
 
 @app.delete("/scrapers/{scraper_id}")

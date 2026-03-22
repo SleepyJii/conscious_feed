@@ -7,6 +7,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
+. "$SCRIPT_DIR/load_config.sh" 2>/dev/null || true
+
 echo "Stopping and removing all containers..."
 docker compose down --remove-orphans
 

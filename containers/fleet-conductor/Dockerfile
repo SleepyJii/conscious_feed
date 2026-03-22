@@ -22,7 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN chmod +x entrypoint.sh run_wrapper.sh launch-repairs.sh
+RUN chmod +x entrypoint.sh run_wrapper.sh launch-repairs.sh repair_wrapper.sh
 
 EXPOSE 8000
 
