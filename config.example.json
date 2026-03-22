@@ -6,5 +6,9 @@
     "opus": "claude-opus-4-6"
   },
   "REPAIR_CRON_SCHEDULE": "* * * * *",
-  "MAX_CONCURRENT_REPAIRS": "1"
+  "MAX_CONCURRENT_REPAIRS": "1",
+  "REPAIR_TIMEOUT": "900",
+  "RETENTION_CONTENT_DAYS": "30",
+  "RETENTION_RUNS_DAYS": "90",
+  "RETENTION_EVENTS_DAYS": "14"
 }

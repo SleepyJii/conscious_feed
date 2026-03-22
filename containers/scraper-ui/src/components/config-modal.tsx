@@ -39,6 +39,7 @@ type ScraperForm = {
   cron_schedule: string
   repair_policy: string
   category: string
+  run_timeout: string
   isNew?: boolean
 }
 
@@ -51,6 +52,7 @@ function scraperToForm(s: ScraperConfigUpdate): ScraperForm {
     cron_schedule: s.cron_schedule ?? "",
     category: s.category ?? "",
     repair_policy: (s.repair_policy ?? ["RETRY"]).join(", "),
+    run_timeout: String(s.run_timeout ?? 300),
   }
 }
 
@@ -63,6 +65,7 @@ function formToUpdate(f: ScraperForm): ScraperConfigUpdate {
     cron_schedule: f.cron_schedule,
     repair_policy: f.repair_policy.split(",").map((s) => s.trim()).filter(Boolean),
     category: f.category,
+    run_timeout: parseInt(f.run_timeout) || 300,
   }
 }
 
@@ -219,6 +222,7 @@ export function ConfigModal({ open, onOpenChange }: ConfigModalProps) {
         cron_schedule: row.cronSchedule,
         repair_policy: row.repairPolicy,
         category: row.category,
+        run_timeout: row.runTimeout ?? 300,
       }))
       setForms(payload.map(scraperToForm))
       setRawJson(JSON.stringify(payload, null, 2))
@@ -258,6 +262,7 @@ export function ConfigModal({ open, onOpenChange }: ConfigModalProps) {
         cron_schedule: "",
         repair_policy: "RETRY, REPAIR:haiku, STALL",
         category: "",
+        run_timeout: "300",
         isNew: true,
       },
     ])
@@ -283,6 +288,7 @@ export function ConfigModal({ open, onOpenChange }: ConfigModalProps) {
           cron_schedule: form.cron_schedule,
           repair_policy: policy.length > 0 ? policy : ["RETRY"],
           category: form.category,
+          run_timeout: parseInt(form.run_timeout) || 300,
         })
         createdCount++
       }
@@ -309,6 +315,7 @@ export function ConfigModal({ open, onOpenChange }: ConfigModalProps) {
         cron_schedule: row.cronSchedule,
         repair_policy: row.repairPolicy,
         category: row.category,
+        run_timeout: row.runTimeout ?? 300,
       }))
       setForms(payload.map(scraperToForm))
     } catch (error) {
@@ -397,6 +404,7 @@ export function ConfigModal({ open, onOpenChange }: ConfigModalProps) {
                       <FormField label="Cron Schedule" value={form.cron_schedule} onChange={(v) => updateForm(index, "cron_schedule", v)} placeholder="*/30 * * * *" />
                       <FormField label="Category" value={form.category} onChange={(v) => updateForm(index, "category", v)} placeholder="e.g. blogs, news, tech" />
                       <FormField label="Repair Policy (comma-separated)" value={form.repair_policy} onChange={(v) => updateForm(index, "repair_policy", v)} placeholder="RETRY, REPAIR:haiku, STALL" />
+                      <FormField label="Run Timeout (seconds)" value={form.run_timeout} onChange={(v) => updateForm(index, "run_timeout", v)} placeholder="300" />
                       <div className="flex items-center justify-between pt-1">
                         {form.scraper_id ? (
                           <button

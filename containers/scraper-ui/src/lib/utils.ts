@@ -14,6 +14,7 @@ export type ScraperRow = {
   cronSchedule: string
   repairPolicy: string[]
   category: string
+  runTimeout: number
   agentNotes: string
   containerState: string
   monitoringHealth: string
@@ -57,6 +58,7 @@ type RawScraperRow = {
   cron_schedule?: string
   repair_policy?: string[]
   category?: string
+  run_timeout?: number
   agent_notes?: string
   container_state?: string
   monitoring?: RawMonitoring
@@ -72,6 +74,7 @@ function toScraperRow(row: RawScraperRow, index: number): ScraperRow {
     cronSchedule: row.cron_schedule ?? "",
     repairPolicy: row.repair_policy ?? ["RETRY"],
     category: row.category ?? "",
+    runTimeout: row.run_timeout ?? 300,
     agentNotes: row.agent_notes ?? "",
     containerState: row.container_state ?? "not running",
     monitoringHealth: row.monitoring?.health ?? "unknown",
@@ -294,6 +297,7 @@ export type ScraperConfigUpdate = {
   cron_schedule?: string
   repair_policy?: string[]
   category?: string
+  run_timeout?: number
 }
 
 type BatchUpdateResponse = {
@@ -341,6 +345,7 @@ export type NewScraperInput = {
   cron_schedule?: string
   repair_policy?: string[]
   category?: string
+  run_timeout?: number
 }
 
 export async function addNewScraper(input: NewScraperInput): Promise<RawScraperRow> {

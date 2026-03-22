@@ -28,7 +28,13 @@ function proxyWebSocket(clientWs, targetUrl) {
 (async () => {
   const browserServer = await chromium.launchServer({
     headless: true,
+    channel: 'chromium',
     host: '0.0.0.0',
+    args: [
+      '--disable-blink-features=AutomationControlled',
+      '--disable-features=site-per-process',
+      '--no-sandbox',
+    ],
   });
 
   const wsEndpoint = browserServer.wsEndpoint();

@@ -1,0 +1,3 @@
+-- Retention policies are applied dynamically on every container start
+-- via containers/db/entrypoint.sh (not via init scripts, which only run once).
+-- See RETENTION_*_DAYS env vars in docker-compose.yml.

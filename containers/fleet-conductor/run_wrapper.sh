@@ -2,13 +2,21 @@
 # Cron wrapper — runs a scraper via docker compose and records the outcome
 # in the scraper_runs table, and emits events to db-restful.
 #
-# Usage: run_wrapper.sh <compose_file> <scraper_id>
+# Usage: run_wrapper.sh <compose_file> <scraper_id> [run_timeout]
 
 set -u
 
 COMPOSE_FILE="$1"
 SCRAPER_ID="$2"
+RUN_TIMEOUT="${3:-300}"
 EVENTS_URL="http://restful_db:5000/register_event"
+STDOUT_FILE=""
+STDERR_FILE=""
+
+cleanup() {
+    rm -f "$STDOUT_FILE" "$STDERR_FILE"
+}
+trap cleanup EXIT
 
 emit_event() {
     curl -s -X POST "$EVENTS_URL" \
@@ -29,13 +37,18 @@ emit_event "{\"source\":\"conductor\",\"event_type\":\"scraper_launched\",\"cont
 
 STDOUT_FILE=$(mktemp)
 STDERR_FILE=$(mktemp)
-docker compose -p fleet -f "$COMPOSE_FILE" run --rm "$SCRAPER_ID" >"$STDOUT_FILE" 2>"$STDERR_FILE"
+# trap cleanup handles rm on exit/signal
+timeout "$RUN_TIMEOUT" docker compose -p fleet -f "$COMPOSE_FILE" run --rm "$SCRAPER_ID" >"$STDOUT_FILE" 2>"$STDERR_FILE"
 EXIT_CODE=$?
+
+# timeout returns 124 on expiry
+if [ "$EXIT_CODE" -eq 124 ]; then
+    echo "run_wrapper: scraper $SCRAPER_ID timed out after ${RUN_TIMEOUT}s" >&2
+fi
 
 FINISHED_AT=$(date -u +"%Y-%m-%d %H:%M:%S+00")
 ROWS_INSERTED=$(grep -c . "$STDOUT_FILE" 2>/dev/null || echo 0)
 STDERR_TAIL=$(tail -c 2000 "$STDERR_FILE")
-rm -f "$STDOUT_FILE" "$STDERR_FILE"
 
 emit_event "{\"source\":\"conductor\",\"event_type\":\"scraper_run_completed\",\"container_id\":\"${SCRAPER_ID}\",\"event_payload\":{\"trigger\":\"cron\",\"exit_code\":${EXIT_CODE},\"rows_inserted\":${ROWS_INSERTED}}}"
 

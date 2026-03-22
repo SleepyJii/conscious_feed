@@ -55,6 +55,7 @@ class ScraperSpec:
     cron_schedule: str = ""
     repair_policy: list[str] = field(default_factory=lambda: list(DEFAULT_REPAIR_POLICY))
     category: str = ""
+    run_timeout: int = 300  # seconds; max wall-clock time for a single scraper run
     agent_notes: str = "SCRAPER NOT YET IMPLEMENTED"
 
     monitoring: ScraperMonitoringSpec | None = field(default=None, repr=False)
@@ -80,6 +81,7 @@ class ScraperSpec:
             "cron_schedule": self.cron_schedule,
             "repair_policy": self.repair_policy,
             "category": self.category,
+            "run_timeout": self.run_timeout,
             "agent_notes": self.agent_notes,
         }
         if self.monitoring is not None:
@@ -95,6 +97,7 @@ class ScraperSpec:
             "cron_schedule": self.cron_schedule,
             "repair_policy": self.repair_policy,
             "category": self.category,
+            "run_timeout": self.run_timeout,
             "agent_notes": self.agent_notes,
         }
 
@@ -116,6 +119,7 @@ class ScraperSpec:
         if self.cron_schedule:
             env["CRON_SCHEDULE"] = self.cron_schedule
         env["REPAIR_POLICY"] = ",".join(self.repair_policy)
+        env["RUN_TIMEOUT"] = str(self.run_timeout)
         if self.category:
             env["SCRAPER_CATEGORY"] = self.category
         if self.agent_notes:
@@ -128,6 +132,9 @@ class ScraperSpec:
             "environment": env,
             "networks": ["conscious-feed"],
             "volumes": ["fleet-data:/fleet-data"],
+            "mem_limit": "512m",
+            "cpus": 1.0,
+            "logging": {"driver": "json-file", "options": {"max-size": "10m", "max-file": "3"}},
         }
 
     @classmethod
@@ -154,5 +161,6 @@ class ScraperSpec:
             cron_schedule=env.get("CRON_SCHEDULE", ""),
             repair_policy=repair_policy,
             category=env.get("SCRAPER_CATEGORY", ""),
+            run_timeout=int(env.get("RUN_TIMEOUT", "300")),
             agent_notes=env.get("AGENT_NOTES", "SCRAPER NOT YET IMPLEMENTED"),
         )

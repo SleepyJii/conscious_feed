@@ -275,29 +275,49 @@ async def get_scraper_info(scraper_id: str) -> dict:
 
 
 @mcp.tool()
-async def browse_page(scraper_id: str, url: str, javascript: str = "") -> dict:
-    """Browse a URL using the debug scraper's live browser.
+async def browse_page(scraper_id: str, url: str, javascript: str = "", wait_seconds: int = 0) -> dict:
+    """Navigate to a URL (if not already there) and return page content.
+    Uses a persistent browser session — the page stays open between calls.
     Requires an active repair container for this scraper.
 
     Args:
         scraper_id: The scraper whose debug browser to use
         url: The URL to navigate to
         javascript: Optional JS to evaluate via page.evaluate()
+        wait_seconds: Seconds to wait after navigation (e.g. for Cloudflare)
     """
-    return await _call_dev_agent(scraper_id, "browse_page", {"url": url, "javascript": javascript})
+    return await _call_dev_agent(scraper_id, "browse_page", {
+        "url": url, "javascript": javascript, "wait_seconds": wait_seconds,
+    })
 
 
 @mcp.tool()
-async def test_selector(scraper_id: str, url: str, selector: str) -> dict:
-    """Test a CSS selector against a page using the debug scraper's browser.
+async def eval_page(scraper_id: str, javascript: str, scroll_first: int = 0) -> dict:
+    """Evaluate JavaScript on the current page without navigating.
+    The page must have been opened by a prior browse_page call.
     Requires an active repair container for this scraper.
 
     Args:
         scraper_id: The scraper whose debug browser to use
-        url: The URL to navigate to
+        javascript: JS expression to evaluate via page.evaluate()
+        scroll_first: Number of times to scroll down (1500px each) before evaluating
+    """
+    return await _call_dev_agent(scraper_id, "eval_page", {
+        "javascript": javascript, "scroll_first": scroll_first,
+    })
+
+
+@mcp.tool()
+async def test_selector(scraper_id: str, selector: str) -> dict:
+    """Test a CSS selector against the current page.
+    The page must have been opened by a prior browse_page call.
+    Requires an active repair container for this scraper.
+
+    Args:
+        scraper_id: The scraper whose debug browser to use
         selector: CSS selector to test
     """
-    return await _call_dev_agent(scraper_id, "test_selector", {"url": url, "selector": selector})
+    return await _call_dev_agent(scraper_id, "test_selector", {"selector": selector})
 
 
 @mcp.tool()

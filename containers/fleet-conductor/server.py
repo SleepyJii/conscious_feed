@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 import state_helpers as state
 import api_helpers as api
 import fleet
-from config import FLEET_DATA, SCRAPER_IMAGE, DEV_AGENT_IMAGE
+from config import FLEET_DATA, SCRAPER_IMAGE, DEV_AGENT_IMAGE, REPAIR_TIMEOUT
 from scraper_spec import ScraperSpec
 
 logging.basicConfig(
@@ -42,6 +42,7 @@ class ScraperAdd(BaseModel):
     cron_schedule: str = Field(default="", description="Cron expression, e.g. '*/30 * * * *'")
     repair_policy: list[str] = Field(default=["RETRY"], description="Ordered steps on consecutive failures: RETRY, STALL, REPAIR:<model>")
     category: str = Field(default="", description="Category label for filtering in the feed")
+    run_timeout: int = Field(default=300, description="Max wall-clock seconds for a single scraper run")
     agent_notes: str = Field(default="SCRAPER NOT YET IMPLEMENTED", description="Short notes from repair agents about implementation details")
 
 
@@ -52,6 +53,7 @@ class ScraperEdit(BaseModel):
     cron_schedule: str | None = None
     repair_policy: list[str] | None = None
     category: str | None = None
+    run_timeout: int | None = None
     agent_notes: str | None = None
 
 
@@ -174,6 +176,7 @@ def add_scraper(body: ScraperAdd):
         cron_schedule=body.cron_schedule,
         repair_policy=body.repair_policy,
         category=body.category,
+        run_timeout=body.run_timeout,
         agent_notes=body.agent_notes,
     )
 
@@ -215,6 +218,8 @@ def edit_scraper(scraper_id: str, body: ScraperEdit):
         spec.repair_policy = body.repair_policy
     if body.category is not None:
         spec.category = body.category
+    if body.run_timeout is not None:
+        spec.run_timeout = body.run_timeout
     if body.agent_notes is not None:
         spec.agent_notes = body.agent_notes
 
@@ -291,10 +296,14 @@ def run_scraper(scraper_id: str):
     if scraper_id not in services:
         raise HTTPException(404, f"Scraper '{scraper_id}' not found")
 
+    spec = ScraperSpec.from_compose_service(scraper_id, services[scraper_id])
+    # Give the wrapper some headroom beyond the scraper's own timeout
+    wrapper_timeout = spec.run_timeout + 60
+
     log.info("Manual run triggered for %s", scraper_id)
     result = subprocess.run(
         ["/app/run_wrapper.sh", str(FLEET_DATA / "docker-compose.yml"), scraper_id],
-        capture_output=True, text=True, timeout=300,
+        capture_output=True, text=True, timeout=wrapper_timeout,
     )
 
     return {
@@ -490,6 +499,9 @@ def repair_scraper(scraper_id: str, body: RepairRequest = RepairRequest()):
         "environment": repair_env,
         "networks": {"conscious-feed": {"aliases": [repair_service_name]}},
         "volumes": ["fleet-data:/fleet-data"],
+        "mem_limit": "1g",
+        "cpus": 1.0,
+        "logging": {"driver": "json-file", "options": {"max-size": "10m", "max-file": "3"}},
     }
     state.save(data)
 
@@ -521,7 +533,8 @@ def repair_scraper(scraper_id: str, body: RepairRequest = RepairRequest()):
         container_id = "pending"
         subprocess.Popen(
             ["/app/repair_wrapper.sh", str(FLEET_DATA / "docker-compose.yml"),
-             scraper_id, repair_service_name, debug_container_id],
+             scraper_id, repair_service_name, debug_container_id,
+             str(REPAIR_TIMEOUT)],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
 
@@ -594,6 +607,11 @@ def batch_update_scrapers(scraper_json : list[dict]):
             category = existing_spec.category
         if category is None:
             category = ""
+        run_timeout = scraper_data.get("run_timeout")
+        if run_timeout is None and existing_spec:
+            run_timeout = existing_spec.run_timeout
+        if run_timeout is None:
+            run_timeout = 300
         agent_notes = scraper_data.get("agent_notes")
         if agent_notes is None and existing_spec:
             agent_notes = existing_spec.agent_notes
@@ -607,6 +625,7 @@ def batch_update_scrapers(scraper_json : list[dict]):
             cron_schedule=scraper_data.get("cron_schedule") or existing_spec.cron_schedule if existing_spec else "",
             repair_policy=repair_policy,
             category=category,
+            run_timeout=run_timeout,
             agent_notes=agent_notes,
         )
 

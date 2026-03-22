@@ -31,7 +31,7 @@ def build_crontab(
     for spec in specs:
         if not spec.cron_schedule:
             continue
-        cmd = f"/app/run_wrapper.sh {compose_file} {spec.scraper_id}"
+        cmd = f"/app/run_wrapper.sh {compose_file} {spec.scraper_id} {spec.run_timeout}"
         lines.append(f"{spec.cron_schedule} {cmd}")
 
     if extra_lines:

@@ -22,6 +22,28 @@ SCRAPER_DIR = os.environ.get("SCRAPER_DIR", "")
 WS_ENDPOINT = os.environ.get("WS_ENDPOINT", "")
 AGENT_NOTES = os.environ.get("AGENT_NOTES", "")
 
+# Persistent browser session — shared across tool calls so we don't re-navigate
+_browser = None
+_context = None
+_page = None
+
+
+def _get_page():
+    """Return the persistent page, creating browser/context/page on first call."""
+    global _browser, _context, _page
+    if _page is None:
+        from playwright.sync_api import sync_playwright
+        p = sync_playwright().start()
+        _browser = p.chromium.connect(WS_ENDPOINT)
+        _context = _browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 900},
+            locale="en-US",
+        )
+        _page = _context.new_page()
+    return _page
+
 
 @mcp.tool()
 def get_scraper_info() -> dict:
@@ -50,15 +72,18 @@ def get_scraper_info() -> dict:
     return info
 
 
-def _browse_page_sync(url: str, javascript: str = "") -> dict:
-    from playwright.sync_api import sync_playwright
-
+def _browse_page_sync(url: str, javascript: str = "", wait_seconds: int = 0) -> dict:
     result = {"url": url, "error": None}
     try:
-        p = sync_playwright().start()
-        browser = p.chromium.connect(WS_ENDPOINT)
-        page = browser.new_context().new_page()
-        page.goto(url, timeout=30000)
+        page = _get_page()
+
+        # Only navigate if the URL differs from the current page
+        if page.url != url and url:
+            page.goto(url, timeout=30000)
+
+        if wait_seconds > 0:
+            import time
+            time.sleep(wait_seconds)
 
         result["title"] = page.title()
         result["final_url"] = page.url
@@ -67,9 +92,6 @@ def _browse_page_sync(url: str, javascript: str = "") -> dict:
         if javascript:
             result["js_result"] = str(page.evaluate(javascript))
 
-        page.close()
-        browser.close()
-        p.stop()
     except Exception as e:
         result["error"] = str(e)
 
@@ -77,25 +99,59 @@ def _browse_page_sync(url: str, javascript: str = "") -> dict:
 
 
 @mcp.tool()
-async def browse_page(url: str, javascript: str = "") -> dict:
-    """Browse a URL using the debug scraper's browser. Optionally run JavaScript.
+async def browse_page(url: str, javascript: str = "", wait_seconds: int = 0) -> dict:
+    """Navigate to a URL (if not already there) and return page content.
+
+    Uses a persistent browser session — the page stays open between calls.
+    Subsequent calls with the same URL skip navigation.
 
     Args:
         url: The URL to navigate to
         javascript: Optional JS to evaluate via page.evaluate()
+        wait_seconds: Seconds to wait after navigation (e.g. for Cloudflare)
     """
-    return await asyncio.to_thread(_browse_page_sync, url, javascript)
+    return await asyncio.to_thread(_browse_page_sync, url, javascript, wait_seconds)
 
 
-def _test_selector_sync(url: str, selector: str) -> dict:
-    from playwright.sync_api import sync_playwright
-
-    result = {"url": url, "selector": selector, "error": None}
+def _eval_page_sync(javascript: str, scroll_first: int = 0) -> dict:
+    result = {"error": None}
     try:
-        p = sync_playwright().start()
-        browser = p.chromium.connect(WS_ENDPOINT)
-        page = browser.new_context().new_page()
-        page.goto(url, timeout=30000)
+        page = _get_page()
+
+        if scroll_first > 0:
+            import time
+            for _ in range(scroll_first):
+                page.evaluate("window.scrollBy(0, 1500)")
+                time.sleep(1)
+
+        result["url"] = page.url
+        result["title"] = page.title()
+        result["js_result"] = str(page.evaluate(javascript))
+
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
+
+
+@mcp.tool()
+async def eval_page(javascript: str, scroll_first: int = 0) -> dict:
+    """Evaluate JavaScript on the current page without navigating.
+
+    The page must have been opened by a prior browse_page call.
+
+    Args:
+        javascript: JS expression to evaluate via page.evaluate()
+        scroll_first: Number of times to scroll down (1500px each) before evaluating
+    """
+    return await asyncio.to_thread(_eval_page_sync, javascript, scroll_first)
+
+
+def _test_selector_sync(selector: str) -> dict:
+    result = {"selector": selector, "error": None}
+    try:
+        page = _get_page()
+        result["url"] = page.url
 
         elements = page.query_selector_all(selector)
         result["count"] = len(elements)
@@ -119,9 +175,6 @@ def _test_selector_sync(url: str, selector: str) -> dict:
 
         result["matches"] = matches
 
-        page.close()
-        browser.close()
-        p.stop()
     except Exception as e:
         result["error"] = str(e)
 
@@ -129,14 +182,15 @@ def _test_selector_sync(url: str, selector: str) -> dict:
 
 
 @mcp.tool()
-async def test_selector(url: str, selector: str) -> dict:
-    """Test a CSS selector against a page using the debug scraper's browser.
+async def test_selector(selector: str) -> dict:
+    """Test a CSS selector against the current page.
+
+    The page must have been opened by a prior browse_page call.
 
     Args:
-        url: The URL to navigate to
         selector: CSS selector to test (e.g. 'article h2', 'div.content p')
     """
-    return await asyncio.to_thread(_test_selector_sync, url, selector)
+    return await asyncio.to_thread(_test_selector_sync, selector)
 
 
 @mcp.tool()
