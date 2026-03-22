@@ -54,6 +54,7 @@ class ScraperSpec:
     name: str = ""
     cron_schedule: str = ""
     repair_policy: list[str] = field(default_factory=lambda: list(DEFAULT_REPAIR_POLICY))
+    category: str = ""
     agent_notes: str = "SCRAPER NOT YET IMPLEMENTED"
 
     monitoring: ScraperMonitoringSpec | None = field(default=None, repr=False)
@@ -78,6 +79,7 @@ class ScraperSpec:
             "scraping_prompt": self.scraping_prompt,
             "cron_schedule": self.cron_schedule,
             "repair_policy": self.repair_policy,
+            "category": self.category,
             "agent_notes": self.agent_notes,
         }
         if self.monitoring is not None:
@@ -92,6 +94,7 @@ class ScraperSpec:
             "scraping_prompt": self.scraping_prompt,
             "cron_schedule": self.cron_schedule,
             "repair_policy": self.repair_policy,
+            "category": self.category,
             "agent_notes": self.agent_notes,
         }
 
@@ -113,6 +116,8 @@ class ScraperSpec:
         if self.cron_schedule:
             env["CRON_SCHEDULE"] = self.cron_schedule
         env["REPAIR_POLICY"] = ",".join(self.repair_policy)
+        if self.category:
+            env["SCRAPER_CATEGORY"] = self.category
         if self.agent_notes:
             env["AGENT_NOTES"] = self.agent_notes
 
@@ -148,5 +153,6 @@ class ScraperSpec:
             scraping_prompt=env.get("SCRAPING_PROMPT", ""),
             cron_schedule=env.get("CRON_SCHEDULE", ""),
             repair_policy=repair_policy,
+            category=env.get("SCRAPER_CATEGORY", ""),
             agent_notes=env.get("AGENT_NOTES", "SCRAPER NOT YET IMPLEMENTED"),
         )

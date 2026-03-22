@@ -6,7 +6,9 @@ import { buttonStyles } from "@/lib/global-styles"
 export function Feed() {
   const [items, setItems] = useState<FeedItem[]>([])
   const [scraperOptions, setScraperOptions] = useState<Array<{ id: string; name: string }>>([])
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([])
   const [filterScraper, setFilterScraper] = useState("")
+  const [filterCategory, setFilterCategory] = useState("")
   const [filterSearch, setFilterSearch] = useState("")
   const [limit, setLimit] = useState(50)
   const [loading, setLoading] = useState(true)
@@ -14,6 +16,8 @@ export function Feed() {
   useEffect(() => {
     fetchScraperData().then((scrapers) => {
       setScraperOptions(scrapers.map((s) => ({ id: s.scraperId, name: s.name || s.scraperId })))
+      const cats = [...new Set(scrapers.map((s) => s.category).filter(Boolean))]
+      setCategoryOptions(cats.sort())
     })
   }, [])
 
@@ -31,19 +35,21 @@ export function Feed() {
     return () => { cancelled = true }
   }, [filterScraper, limit])
 
-  const filtered = filterSearch
-    ? items.filter((item) => {
-        const q = filterSearch.toLowerCase()
-        return (
-          item.title.toLowerCase().includes(q) ||
-          item.content.toLowerCase().includes(q) ||
-          item.scraperName.toLowerCase().includes(q)
-        )
-      })
-    : items
+  const filtered = items.filter((item) => {
+    if (filterCategory && item.category !== filterCategory) return false
+    if (filterSearch) {
+      const q = filterSearch.toLowerCase()
+      if (
+        !item.title.toLowerCase().includes(q) &&
+        !item.content.toLowerCase().includes(q) &&
+        !item.scraperName.toLowerCase().includes(q)
+      ) return false
+    }
+    return true
+  })
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="mx-auto max-w-6xl">
       <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b bg-background pb-4">
         <select
           className="rounded-md border bg-background px-3 py-1.5 text-sm"
@@ -55,6 +61,19 @@ export function Feed() {
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
+
+        {categoryOptions.length > 0 && (
+          <select
+            className="rounded-md border bg-background px-3 py-1.5 text-sm"
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+          >
+            <option value="">All categories</option>
+            {categoryOptions.map((cat) => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+        )}
 
         <input
           type="text"
@@ -82,10 +101,33 @@ export function Feed() {
       <div className="divide-y">
         {filtered.map((item) => (
           <article key={item.id} className="py-5">
-            <div className="mb-1 flex items-baseline gap-2">
-              <span className="text-xs text-muted-foreground">{item.scraperName}</span>
-              <span className="text-xs text-muted-foreground">&middot;</span>
-              <time className="text-xs text-muted-foreground">{item.publishedAt || item.scrapedAt}</time>
+            <div className="mb-1 flex items-baseline justify-between">
+              <div className="flex items-baseline gap-2">
+                <a
+                  href={item.targetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                >
+                  {item.scraperName}
+                </a>
+                {item.publishedAt && (
+                  <>
+                    <span className="text-xs text-muted-foreground">&middot;</span>
+                    <time className="text-xs text-muted-foreground" title="Published date">
+                      {item.publishedAt}
+                    </time>
+                  </>
+                )}
+              </div>
+              {item.scrapedAt && (
+                <time
+                  className="text-xs font-mono text-muted-foreground/60"
+                  title="Scraped at"
+                >
+                  {item.scrapedAt}
+                </time>
+              )}
             </div>
             {item.pageUrl ? (
               <a href={item.pageUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium hover:underline">

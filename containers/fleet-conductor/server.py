@@ -41,6 +41,7 @@ class ScraperAdd(BaseModel):
     scraping_prompt: str = Field(description="Natural-language description of what to scrape")
     cron_schedule: str = Field(default="", description="Cron expression, e.g. '*/30 * * * *'")
     repair_policy: list[str] = Field(default=["RETRY"], description="Ordered steps on consecutive failures: RETRY, STALL, REPAIR:<model>")
+    category: str = Field(default="", description="Category label for filtering in the feed")
     agent_notes: str = Field(default="SCRAPER NOT YET IMPLEMENTED", description="Short notes from repair agents about implementation details")
 
 
@@ -50,6 +51,7 @@ class ScraperEdit(BaseModel):
     scraping_prompt: str | None = None
     cron_schedule: str | None = None
     repair_policy: list[str] | None = None
+    category: str | None = None
     agent_notes: str | None = None
 
 
@@ -169,6 +171,7 @@ def add_scraper(body: ScraperAdd):
         scraping_prompt=body.scraping_prompt,
         cron_schedule=body.cron_schedule,
         repair_policy=body.repair_policy,
+        category=body.category,
         agent_notes=body.agent_notes,
     )
 
@@ -208,6 +211,8 @@ def edit_scraper(scraper_id: str, body: ScraperEdit):
         spec.cron_schedule = body.cron_schedule
     if body.repair_policy is not None:
         spec.repair_policy = body.repair_policy
+    if body.category is not None:
+        spec.category = body.category
     if body.agent_notes is not None:
         spec.agent_notes = body.agent_notes
 
@@ -532,6 +537,11 @@ def batch_update_scrapers(scraper_json : list[dict]):
             repair_policy = existing_spec.repair_policy
         if repair_policy is None:
             repair_policy = ["RETRY"]
+        category = scraper_data.get("category")
+        if category is None and existing_spec:
+            category = existing_spec.category
+        if category is None:
+            category = ""
         agent_notes = scraper_data.get("agent_notes")
         if agent_notes is None and existing_spec:
             agent_notes = existing_spec.agent_notes
@@ -544,6 +554,7 @@ def batch_update_scrapers(scraper_json : list[dict]):
             scraping_prompt=scraper_data.get("scraping_prompt") or existing_spec.scraping_prompt if existing_spec else "",
             cron_schedule=scraper_data.get("cron_schedule") or existing_spec.cron_schedule if existing_spec else "",
             repair_policy=repair_policy,
+            category=category,
             agent_notes=agent_notes,
         )
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
   Table,
   TableBody,
@@ -30,7 +30,9 @@ const healthChartConfig = {
 } satisfies ChartConfig
 
 const timelineChartConfig = {
-  total: { label: "Total Scrapers", color: "#3b82f6" },
+  total: { label: "Total Scraper Specs", color: "#ffffff" },
+  active: { label: "Active Scrapers", color: "#3b82f6" },
+  repairs: { label: "Active DevAgents", color: "#ef4444" },
 } satisfies ChartConfig
 
 export function MonitoringCharts() {
@@ -38,12 +40,8 @@ export function MonitoringCharts() {
   const [timelineData, setTimelineData] = useState<DashboardTimelinePoint[]>([])
   const [eventRows, setEventRows] = useState<DashboardEventRow[]>([])
 
-  useEffect(() => {
-    let cancelled = false
-
+  const loadData = useCallback(() => {
     fetchDashboardData().then((data) => {
-      if (cancelled) return
-
       const healthColors: Record<string, string> = {
         healthy: "#16a34a",
         degraded: "#f59e0b",
@@ -62,11 +60,18 @@ export function MonitoringCharts() {
       setTimelineData(data.timelineData)
       setEventRows(data.eventRows)
     })
-
-    return () => { cancelled = true }
   }, [])
 
+  useEffect(() => {
+    loadData()
+    const interval = setInterval(loadData, 60_000)
+    return () => clearInterval(interval)
+  }, [loadData])
+
   const totalScrapers = chartData.reduce((sum, item) => sum + item.count, 0)
+
+  const maxTotal = Math.max(1, ...timelineData.map((d) => d.total))
+  const timelineYMax = Math.ceil(maxTotal * 1.25)
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -99,20 +104,47 @@ export function MonitoringCharts() {
       </div>
 
       <div className="rounded-xl border p-6">
-        <h2 className="mb-4 text-sm font-medium">Scrapers Timeline</h2>
+        <h2 className="mb-4 text-sm font-medium">Fleet Timeline</h2>
         <ChartContainer config={timelineChartConfig} className="mx-auto max-h-[280px] w-full">
           <LineChart data={timelineData} margin={{ left: 12, right: 12 }}>
             <CartesianGrid vertical={false} />
-            <XAxis type="category" dataKey="hour" tickLine={false} axisLine={false} />
-            <YAxis type="number" dataKey="total" tickLine={false} axisLine={false} width={40} />
-            <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+            <XAxis
+              type="category"
+              dataKey="hour"
+              tickLine={false}
+              axisLine={false}
+              interval={Math.max(0, Math.floor(timelineData.length / 6) - 1)}
+            />
+            <YAxis
+              type="number"
+              tickLine={false}
+              axisLine={false}
+              width={40}
+              allowDecimals={false}
+              domain={[0, timelineYMax]}
+            />
+            <ChartTooltip content={<ChartTooltipContent />} />
             <Line
-              type="monotone"
+              type="stepAfter"
               dataKey="total"
               stroke="var(--color-total)"
+              strokeWidth={1.5}
+              strokeDasharray="6 3"
+              dot={false}
+            />
+            <Line
+              type="stepAfter"
+              dataKey="active"
+              stroke="var(--color-active)"
+              strokeWidth={4}
+              dot={false}
+            />
+            <Line
+              type="stepAfter"
+              dataKey="repairs"
+              stroke="var(--color-repairs)"
               strokeWidth={2}
-              dot={{ r: 4, fill: "var(--color-total)" }}
-              activeDot={{ r: 6 }}
+              dot={false}
             />
           </LineChart>
         </ChartContainer>

@@ -82,7 +82,7 @@ def rss_content():
 
     if scraper_id:
         cursor.execute(
-            """SELECT id, scraper_id, scraper_name, target_url, page_url,
+            """SELECT id, scraper_id, scraper_name, category, target_url, page_url,
                       title, content, published_at, scraped_at
                FROM scrape_results
                WHERE scraper_id = %s
@@ -92,7 +92,7 @@ def rss_content():
         )
     else:
         cursor.execute(
-            """SELECT id, scraper_id, scraper_name, target_url, page_url,
+            """SELECT id, scraper_id, scraper_name, category, target_url, page_url,
                       title, content, published_at, scraped_at
                FROM scrape_results
                ORDER BY COALESCE(published_at, scraped_at) DESC

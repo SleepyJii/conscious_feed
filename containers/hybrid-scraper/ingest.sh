@@ -29,12 +29,14 @@ while IFS= read -r line; do
         --arg sid "${SCRAPER_ID:-unknown}" \
         --arg sname "${SCRAPER_NAME:-}" \
         --arg turl "${TARGET_URL:-}" \
+        --arg scat "${SCRAPER_CATEGORY:-}" \
         --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        '. + {scraper_id: $sid, scraper_name: $sname, target_url: $turl, scraped_at: $ts}')
+        '. + {scraper_id: $sid, scraper_name: $sname, target_url: $turl, category: $scat, scraped_at: $ts}')
 
     # Extract fields for SQL
     s_id=$(echo "$enriched" | jq -r '.scraper_id')
     s_name=$(echo "$enriched" | jq -r '.scraper_name')
+    s_cat=$(echo "$enriched" | jq -r '.category // ""')
     t_url=$(echo "$enriched" | jq -r '.target_url')
     page_url=$(echo "$enriched" | jq -r '.url // .target_url')
     title=$(echo "$enriched" | jq -r '.title // ""')
@@ -52,10 +54,11 @@ while IFS= read -r line; do
 
     # Upsert: insert or update on (page_url, title, published_at) conflict
     if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -q -c \
-        "INSERT INTO scrape_results (scraper_id, scraper_name, target_url, page_url, title, content, published_at, raw_json, scraped_at)
+        "INSERT INTO scrape_results (scraper_id, scraper_name, category, target_url, page_url, title, content, published_at, raw_json, scraped_at)
          VALUES (
             '$(echo "$s_id" | sed "s/'/''/g")',
             '$(echo "$s_name" | sed "s/'/''/g")',
+            '$(echo "$s_cat" | sed "s/'/''/g")',
             '$(echo "$t_url" | sed "s/'/''/g")',
             '$(echo "$page_url" | sed "s/'/''/g")',
             '$(echo "$title" | sed "s/'/''/g")',

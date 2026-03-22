@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS scrape_results (
     id             BIGSERIAL PRIMARY KEY,
     scraper_id     TEXT NOT NULL,
     scraper_name   TEXT NOT NULL DEFAULT '',
+    category       TEXT NOT NULL DEFAULT '',
     target_url     TEXT NOT NULL DEFAULT '',
     page_url       TEXT NOT NULL DEFAULT '',
     title          TEXT NOT NULL DEFAULT '',

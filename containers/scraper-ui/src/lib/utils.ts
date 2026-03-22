@@ -13,6 +13,7 @@ export type ScraperRow = {
   scrapingPrompt: string
   cronSchedule: string
   repairPolicy: string[]
+  category: string
   containerState: string
   monitoringHealth: string
   monitoringLastRun: string
@@ -32,6 +33,7 @@ export const scraperColumns: ColumnDefinition[] = [
   { key: "scrapingPrompt", header: "Scraping Prompt", className: "whitespace-normal break-words" },
   { key: "cronSchedule", header: "Cron Schedule", className: "whitespace-normal break-words" },
   { key: "repairPolicy", header: "Repair Policy", className: "whitespace-normal break-words" },
+  { key: "category", header: "Category", className: "whitespace-normal break-words" },
   { key: "containerState", header: "Container State", className: "whitespace-normal break-words" },
   { key: "monitoringHealth", header: "Health", className: "whitespace-normal break-words" },
   { key: "monitoringLastRun", header: "Last Run", className: "whitespace-normal break-words" },
@@ -51,6 +53,7 @@ type RawScraperRow = {
   scraping_prompt?: string
   cron_schedule?: string
   repair_policy?: string[]
+  category?: string
   container_state?: string
   monitoring?: RawMonitoring
 }
@@ -64,6 +67,7 @@ function toScraperRow(row: RawScraperRow, index: number): ScraperRow {
     scrapingPrompt: row.scraping_prompt ?? "",
     cronSchedule: row.cron_schedule ?? "",
     repairPolicy: row.repair_policy ?? ["RETRY"],
+    category: row.category ?? "",
     containerState: row.container_state ?? "not running",
     monitoringHealth: row.monitoring?.health ?? "unknown",
     monitoringLastRun: row.monitoring?.last_run ?? "",
@@ -88,6 +92,29 @@ export async function fetchScraperData(): Promise<ScraperRow[]> {
   }
 }
 
+export async function runScraper(scraperId: string): Promise<{ exit_code: number }> {
+  const response = await fetch(`/conductor-api/scrapers/${scraperId}/run`, { method: "POST" })
+  if (!response.ok) throw new Error(`Run failed (${response.status})`)
+  return response.json()
+}
+
+export async function stopScraper(scraperId: string): Promise<void> {
+  const response = await fetch(`/conductor-api/scrapers/${scraperId}/stop`, { method: "POST" })
+  if (!response.ok) throw new Error(`Stop failed (${response.status})`)
+}
+
+export async function repairScraper(
+  scraperId: string,
+  opts: { model?: string; sockpuppet?: boolean } = {},
+): Promise<void> {
+  const response = await fetch(`/conductor-api/scrapers/${scraperId}/repair`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lazy: false, sockpuppet: opts.sockpuppet ?? false, model: opts.model ?? "" }),
+  })
+  if (!response.ok) throw new Error(`Repair failed (${response.status})`)
+}
+
 export type DashboardEventRow = {
   eventType: string
   eventTime: string
@@ -96,6 +123,8 @@ export type DashboardEventRow = {
 export type DashboardTimelinePoint = {
   hour: string
   total: number
+  repairs: number
+  active: number
 }
 
 export type DashboardHealthCounts = Record<string, number>
@@ -112,7 +141,7 @@ type DashboardData = {
   eventRows: DashboardEventRow[]
 }
 
-const TIMELINE_HOURS = 12
+const MAX_TIMELINE_MS = 12 * 60 * 60 * 1000
 
 function classifyHealth(health: string): string {
   const value = health.toLowerCase().trim()
@@ -123,7 +152,7 @@ function classifyHealth(health: string): string {
   return `${value.charAt(0).toUpperCase()}${value.slice(1)}`
 }
 
-function toHourLabel(date: Date): string {
+function toMinuteLabel(date: Date): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
 }
 
@@ -151,39 +180,60 @@ export async function fetchDashboardData(): Promise<DashboardData> {
       eventTime: event.created_at ? new Date(event.created_at).toLocaleString() : "Unknown Time",
     }))
 
-    const now = new Date()
-    now.setMinutes(0, 0, 0)
-    const hourlyMarks = Array.from({ length: TIMELINE_HOURS }, (_, index) => {
-      const hourDate = new Date(now)
-      hourDate.setHours(now.getHours() - (TIMELINE_HOURS - 1 - index))
-      return hourDate
-    })
-
-    const scraperSeen = new Set<string>()
     const eventsAsc = [...eventRowsFromApi]
       .filter((event) => typeof event.created_at === "string")
       .sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""))
 
+    // Build minute-level timeline from first event to now, capped at 12h
+    const now = new Date()
+    const earliest = eventsAsc.length > 0
+      ? new Date(eventsAsc[0].created_at!)
+      : now
+
+    const startTime = new Date(Math.max(earliest.getTime(), now.getTime() - MAX_TIMELINE_MS))
+    startTime.setSeconds(0, 0)
+
+    // Generate one point per minute
+    const minuteMarks: Date[] = []
+    const cursor = new Date(startTime)
+    while (cursor <= now) {
+      minuteMarks.push(new Date(cursor))
+      cursor.setMinutes(cursor.getMinutes() + 1)
+    }
+
+    let scraperCount = 0
+    let activeRepairs = 0
+    let activeScrapers = 0
     let eventIndex = 0
-    const timelineData = hourlyMarks.map((hourStart) => {
-      const hourEnd = new Date(hourStart)
-      hourEnd.setHours(hourStart.getHours() + 1)
+
+    const timelineData = minuteMarks.map((minuteStart) => {
+      const minuteEnd = new Date(minuteStart)
+      minuteEnd.setMinutes(minuteStart.getMinutes() + 1)
 
       while (eventIndex < eventsAsc.length) {
         const event = eventsAsc[eventIndex]
         const createdAt = event.created_at ? new Date(event.created_at) : null
-        if (!createdAt || createdAt >= hourEnd) {
-          break
+        if (!createdAt || createdAt >= minuteEnd) break
+
+        if (event.event_type === "scraper_created") scraperCount++
+        if (event.event_type === "scraper_deleted") scraperCount = Math.max(0, scraperCount - 1)
+        if (event.event_type === "scraper_launched" || event.event_type === "scraper_debug_launched") activeScrapers++
+        if (event.event_type === "scraper_run_completed" || event.event_type === "ingest_completed") {
+          activeScrapers = Math.max(0, activeScrapers - 1)
         }
-        if (event.container_id) {
-          scraperSeen.add(event.container_id)
+        if (event.event_type === "repair_launched") activeRepairs++
+        if (event.event_type === "repair_cleanup" || event.event_type === "repair_completed") {
+          activeRepairs = Math.max(0, activeRepairs - 1)
         }
-        eventIndex += 1
+
+        eventIndex++
       }
 
       return {
-        hour: toHourLabel(hourStart),
-        total: scraperSeen.size > 0 ? scraperSeen.size : scrapers.length,
+        hour: toMinuteLabel(minuteStart),
+        total: scraperCount,
+        repairs: activeRepairs,
+        active: activeScrapers,
       }
     })
 
@@ -195,16 +245,12 @@ export async function fetchDashboardData(): Promise<DashboardData> {
   } catch (error) {
     console.error("Failed to fetch dashboard data:", error)
 
-    const now = new Date()
-    now.setMinutes(0, 0, 0)
-    const timelineData = Array.from({ length: TIMELINE_HOURS }, (_, index) => {
-      const hourDate = new Date(now)
-      hourDate.setHours(now.getHours() - (TIMELINE_HOURS - 1 - index))
-      return {
-        hour: toHourLabel(hourDate),
-        total: scrapers.length,
-      }
-    })
+    const timelineData: DashboardTimelinePoint[] = [{
+      hour: toMinuteLabel(new Date()),
+      total: scrapers.length,
+      repairs: 0,
+      active: 0,
+    }]
 
     return {
       healthCounts: scrapers.length > 0 ? healthCounts : emptyHealthCounts,
@@ -221,6 +267,7 @@ export type ScraperConfigUpdate = {
   scraping_prompt?: string
   cron_schedule?: string
   repair_policy?: string[]
+  category?: string
 }
 
 type BatchUpdateResponse = {
@@ -261,10 +308,35 @@ export async function postScraperConfig(
   return (await response.json()) as BatchUpdateResponse
 }
 
+export type NewScraperInput = {
+  name?: string
+  target_url: string
+  scraping_prompt: string
+  cron_schedule?: string
+  repair_policy?: string[]
+  category?: string
+}
+
+export async function addNewScraper(input: NewScraperInput): Promise<RawScraperRow> {
+  const response = await fetch("/conductor-api/scrapers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`Failed to add scraper (${response.status}): ${errorText}`)
+  }
+
+  return (await response.json()) as RawScraperRow
+}
+
 export type FeedItem = {
   id: number
   scraperId: string
   scraperName: string
+  category: string
   targetUrl: string
   pageUrl: string
   title: string
@@ -277,6 +349,7 @@ type RawFeedItem = {
   id?: number
   scraper_id?: string
   scraper_name?: string
+  category?: string
   target_url?: string
   page_url?: string
   title?: string
@@ -308,6 +381,7 @@ export async function fetchFeedItems(opts?: {
       id: row.id ?? 0,
       scraperId: row.scraper_id ?? "",
       scraperName: row.scraper_name ?? "",
+      category: row.category ?? "",
       targetUrl: row.target_url ?? "",
       pageUrl: row.page_url ?? "",
       title: row.title ?? "",

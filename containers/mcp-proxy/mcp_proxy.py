@@ -130,6 +130,7 @@ def add_scraper(
     name: str = "",
     cron_schedule: str = "",
     repair_policy: list[str] | None = None,
+    category: str = "",
     agent_notes: str = "SCRAPER NOT YET IMPLEMENTED",
 ) -> dict:
     """Deploy a new scraper to the fleet.
@@ -140,6 +141,7 @@ def add_scraper(
         name: Human-readable name (defaults to generated ID)
         cron_schedule: Cron expression, e.g. '*/30 * * * *'
         repair_policy: Ordered steps on consecutive failures: RETRY, STALL, REPAIR:<model>
+        category: Category label for filtering in the feed
         agent_notes: Short notes from repair agents about implementation details
     """
     return _conductor("POST", "/scrapers", {
@@ -148,6 +150,7 @@ def add_scraper(
         "scraping_prompt": scraping_prompt,
         "cron_schedule": cron_schedule,
         "repair_policy": repair_policy or ["RETRY"],
+        "category": category,
         "agent_notes": agent_notes,
     })
 
@@ -160,6 +163,7 @@ def edit_scraper(
     scraping_prompt: str | None = None,
     cron_schedule: str | None = None,
     repair_policy: list[str] | None = None,
+    category: str | None = None,
     agent_notes: str | None = None,
 ) -> dict:
     """Edit a scraper's config. Only provided fields are updated.
@@ -171,6 +175,7 @@ def edit_scraper(
         scraping_prompt: What to extract
         cron_schedule: Cron expression
         repair_policy: Ordered steps on consecutive failures: RETRY, STALL, REPAIR:<model>
+        category: Category label for filtering in the feed
         agent_notes: Short notes from repair agents about implementation details
     """
     body = {}
@@ -184,6 +189,8 @@ def edit_scraper(
         body["cron_schedule"] = cron_schedule
     if repair_policy is not None:
         body["repair_policy"] = repair_policy
+    if category is not None:
+        body["category"] = category
     if agent_notes is not None:
         body["agent_notes"] = agent_notes
     return _conductor("PATCH", f"/scrapers/{scraper_id}", body)
