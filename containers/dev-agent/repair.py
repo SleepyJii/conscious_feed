@@ -58,7 +58,7 @@ You have MCP tools to diagnose and fix broken web scrapers.
 Scripts you write must:
 - Read WS_ENDPOINT and TARGET_URL from env
 - Connect to Playwright via p.chromium.connect(ws) (NOT launch())
-- Output {{"url", "title", "content"}} JSON lines to stdout (one per item)
+- Output JSON lines to stdout (one per item) with fields: "url", "title", "content", and "published_at" (ISO 8601 datetime if available on the page, otherwise omit)
 - Not interact with the database — ingest.sh handles that downstream
 
 ## Your procedure

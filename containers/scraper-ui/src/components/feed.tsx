@@ -85,7 +85,7 @@ export function Feed() {
             <div className="mb-1 flex items-baseline gap-2">
               <span className="text-xs text-muted-foreground">{item.scraperName}</span>
               <span className="text-xs text-muted-foreground">&middot;</span>
-              <time className="text-xs text-muted-foreground">{item.scrapedAt}</time>
+              <time className="text-xs text-muted-foreground">{item.publishedAt || item.scrapedAt}</time>
             </div>
             {item.pageUrl ? (
               <a href={item.pageUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium hover:underline">

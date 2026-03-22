@@ -269,6 +269,7 @@ export type FeedItem = {
   pageUrl: string
   title: string
   content: string
+  publishedAt: string
   scrapedAt: string
 }
 
@@ -280,6 +281,7 @@ type RawFeedItem = {
   page_url?: string
   title?: string
   content?: string
+  published_at?: string
   scraped_at?: string
 }
 
@@ -310,6 +312,7 @@ export async function fetchFeedItems(opts?: {
       pageUrl: row.page_url ?? "",
       title: row.title ?? "",
       content: row.content ?? "",
+      publishedAt: row.published_at ? new Date(row.published_at).toLocaleString() : "",
       scrapedAt: row.scraped_at ? new Date(row.scraped_at).toLocaleString() : "",
     }))
   } catch (error) {

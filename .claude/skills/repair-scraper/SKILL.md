@@ -35,7 +35,7 @@ Call `write_scraper_script` with `scraper_id: "$ARGUMENTS"` and the corrected sc
 The script must:
 - Read `WS_ENDPOINT` and `TARGET_URL` from env
 - Connect to Playwright via `p.chromium.connect(ws)` (NOT `launch()`)
-- Output `{"url", "title", "content"}` JSON lines to stdout
+- Output JSON lines to stdout with fields: `url`, `title`, `content`, and `published_at` (ISO 8601 datetime if available on the page, otherwise omit)
 - Not import or interact with the database
 
 **The script must faithfully implement the user's `SCRAPING_PROMPT`.** Match the selectors and extraction logic to what the user actually asked for.

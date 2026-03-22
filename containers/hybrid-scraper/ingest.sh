@@ -1,6 +1,7 @@
 #!/bin/sh
-# ingest.sh — reads JSONL from stdin, enriches, and inserts into PostgreSQL.
+# ingest.sh — reads JSONL from stdin, enriches, and upserts into PostgreSQL.
 # Non-JSON lines are forwarded to stderr as log output.
+# Dedup: rows with matching (page_url, title, published_at) are updated, not duplicated.
 
 set -eu
 
@@ -38,12 +39,20 @@ while IFS= read -r line; do
     page_url=$(echo "$enriched" | jq -r '.url // .target_url')
     title=$(echo "$enriched" | jq -r '.title // ""')
     content=$(echo "$enriched" | jq -r '.content // ""')
+    published_at=$(echo "$enriched" | jq -r '.published_at // empty')
     scraped_at=$(echo "$enriched" | jq -r '.scraped_at')
     raw_json="$enriched"
 
-    # Insert into PostgreSQL (escape single quotes for SQL)
+    # Build published_at SQL value (NULL if not provided)
+    if [ -n "$published_at" ]; then
+        pub_sql="'$(echo "$published_at" | sed "s/'/''/g")'::timestamptz"
+    else
+        pub_sql="NULL"
+    fi
+
+    # Upsert: insert or update on (page_url, title, published_at) conflict
     if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -q -c \
-        "INSERT INTO scrape_results (scraper_id, scraper_name, target_url, page_url, title, content, raw_json, scraped_at)
+        "INSERT INTO scrape_results (scraper_id, scraper_name, target_url, page_url, title, content, published_at, raw_json, scraped_at)
          VALUES (
             '$(echo "$s_id" | sed "s/'/''/g")',
             '$(echo "$s_name" | sed "s/'/''/g")',
@@ -51,9 +60,15 @@ while IFS= read -r line; do
             '$(echo "$page_url" | sed "s/'/''/g")',
             '$(echo "$title" | sed "s/'/''/g")',
             '$(echo "$content" | sed "s/'/''/g")',
+            $pub_sql,
             '$(echo "$raw_json" | sed "s/'/''/g")'::jsonb,
             '$scraped_at'::timestamptz
-         );" 2>&1; then
+         )
+         ON CONFLICT (page_url, title, (COALESCE(published_at, '1970-01-01'::timestamptz)))
+         DO UPDATE SET
+            content = EXCLUDED.content,
+            raw_json = EXCLUDED.raw_json,
+            scraped_at = EXCLUDED.scraped_at;" 2>&1; then
         ROWS_OK=$((ROWS_OK + 1))
         # Echo ingested line to stdout so callers can count rows
         echo "$line"

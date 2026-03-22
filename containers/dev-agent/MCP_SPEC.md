@@ -42,7 +42,7 @@ Runs `scraper.py` as a subprocess with `WS_ENDPOINT` and `TARGET_URL` set, conne
 Scripts written via `write_scraper_script` must:
 - Read `WS_ENDPOINT` and `TARGET_URL` from env
 - Connect via `p.chromium.connect(ws)` (NOT `launch()`)
-- Output `{"url", "title", "content"}` JSONL to stdout
+- Output JSONL to stdout with fields: `url`, `title`, `content`, and `published_at` (ISO 8601 datetime if available on the page, otherwise omit)
 - Not interact with the database (ingest.sh handles that)
 
 ## Repair Workflow
