@@ -370,6 +370,9 @@ def stop_scraper(scraper_id: str):
         del services[repair_service]
         state.save(data)
         fleet.sync_crontab(data)
+        api.emit("repair_cleanup", container_id=scraper_id, payload={
+            "reason": "manual_stop",
+        })
 
     # Stop any running containers for this scraper (debug or normal)
     # docker compose rm handles the compose-managed container
