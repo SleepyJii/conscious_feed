@@ -131,6 +131,7 @@ def add_scraper(
     cron_schedule: str = "",
     repair_policy: list[str] | None = None,
     category: str = "",
+    run_timeout: int = 300,
     agent_notes: str = "SCRAPER NOT YET IMPLEMENTED",
 ) -> dict:
     """Deploy a new scraper to the fleet.
@@ -142,6 +143,7 @@ def add_scraper(
         cron_schedule: Cron expression, e.g. '*/30 * * * *'
         repair_policy: Ordered steps on consecutive failures: RETRY, STALL, REPAIR:<model>
         category: Category label for filtering in the feed
+        run_timeout: Max wall-clock seconds for a single scraper run (default 300)
         agent_notes: Short notes from repair agents about implementation details
     """
     return _conductor("POST", "/scrapers", {
@@ -151,6 +153,7 @@ def add_scraper(
         "cron_schedule": cron_schedule,
         "repair_policy": repair_policy or ["RETRY"],
         "category": category,
+        "run_timeout": run_timeout,
         "agent_notes": agent_notes,
     })
 
@@ -164,6 +167,7 @@ def edit_scraper(
     cron_schedule: str | None = None,
     repair_policy: list[str] | None = None,
     category: str | None = None,
+    run_timeout: int | None = None,
     agent_notes: str | None = None,
 ) -> dict:
     """Edit a scraper's config. Only provided fields are updated.
@@ -176,6 +180,7 @@ def edit_scraper(
         cron_schedule: Cron expression
         repair_policy: Ordered steps on consecutive failures: RETRY, STALL, REPAIR:<model>
         category: Category label for filtering in the feed
+        run_timeout: Max wall-clock seconds for a single scraper run
         agent_notes: Short notes from repair agents about implementation details
     """
     body = {}
@@ -191,6 +196,8 @@ def edit_scraper(
         body["repair_policy"] = repair_policy
     if category is not None:
         body["category"] = category
+    if run_timeout is not None:
+        body["run_timeout"] = run_timeout
     if agent_notes is not None:
         body["agent_notes"] = agent_notes
     return _conductor("PATCH", f"/scrapers/{scraper_id}", body)
@@ -361,14 +368,15 @@ async def update_agent_notes(scraper_id: str, notes: str) -> str:
 
 
 @mcp.tool()
-async def test_scraper_script(scraper_id: str) -> dict:
+async def test_scraper_script(scraper_id: str, timeout: int = 120) -> dict:
     """Run the current scraper.py against the debug scraper's live browser.
     Requires an active repair container for this scraper.
 
     Args:
         scraper_id: e.g. 'scraper-001'
+        timeout: Max seconds to wait for script to finish (default 120)
     """
-    return await _call_dev_agent(scraper_id, "test_scraper_script")
+    return await _call_dev_agent(scraper_id, "test_scraper_script", {"timeout": timeout})
 
 
 # ---------------------------------------------------------------------------

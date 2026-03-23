@@ -215,11 +215,14 @@ def write_scraper_script(content: str) -> str:
 
 
 @mcp.tool()
-async def test_scraper_script() -> dict:
+async def test_scraper_script(timeout: int = 120) -> dict:
     """Run the current scraper.py against the debug scraper's live browser.
 
     Executes the script as a subprocess with WS_ENDPOINT and TARGET_URL set,
     connecting to the same browser instance the production scraper uses.
+
+    Args:
+        timeout: Max seconds to wait for script to finish (default 120)
     """
     script_file = Path(SCRAPER_DIR) / "scraper.py"
     if not script_file.exists():
@@ -233,7 +236,7 @@ async def test_scraper_script() -> dict:
         try:
             result = subprocess.run(
                 ["python3", str(script_file)],
-                capture_output=True, text=True, timeout=60, env=env,
+                capture_output=True, text=True, timeout=timeout, env=env,
             )
             return {
                 "exit_code": result.returncode,
@@ -241,7 +244,7 @@ async def test_scraper_script() -> dict:
                 "stderr": result.stderr[:5000],
             }
         except subprocess.TimeoutExpired:
-            return {"error": "Script timed out after 60s", "exit_code": 1}
+            return {"error": f"Script timed out after {timeout}s", "exit_code": 1}
 
     return await asyncio.to_thread(_run)
 

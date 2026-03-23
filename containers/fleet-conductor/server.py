@@ -297,20 +297,18 @@ def run_scraper(scraper_id: str):
         raise HTTPException(404, f"Scraper '{scraper_id}' not found")
 
     spec = ScraperSpec.from_compose_service(scraper_id, services[scraper_id])
-    # Give the wrapper some headroom beyond the scraper's own timeout
-    wrapper_timeout = spec.run_timeout + 60
 
     log.info("Manual run triggered for %s", scraper_id)
-    result = subprocess.run(
-        ["/app/run_wrapper.sh", str(FLEET_DATA / "docker-compose.yml"), scraper_id],
-        capture_output=True, text=True, timeout=wrapper_timeout,
+    subprocess.Popen(
+        ["/app/run_wrapper.sh", str(FLEET_DATA / "docker-compose.yml"),
+         scraper_id, str(spec.run_timeout)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
 
     return {
         "scraper_id": scraper_id,
-        "exit_code": result.returncode,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
+        "status": "run launched",
+        "run_timeout": spec.run_timeout,
     }
 
 
